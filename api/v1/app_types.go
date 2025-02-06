@@ -25,11 +25,14 @@ import (
 
 // AppSpec defines the desired state of App.
 type AppSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// Foo is an example field of App. Edit app_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// The docker image to run
+	Image string `json:"image"`
+	// The domain to serve the app on
+	Domain string `json:"domain"`
+	// The number of replicas to run
+	Replicas *int32 `json:"replicas,omitempty"`
+	// The port to expose on the pod, if empty try to infer it
+	Port *int32 `json:"port,omitempty"`
 }
 
 // AppStatus defines the observed state of App.
