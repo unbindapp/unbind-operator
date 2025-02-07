@@ -1,0 +1,8 @@
+apiVersion: app.unbind.cloud/v1
+kind: App
+metadata:
+  name: hello-world-app
+  namespace: unbind
+spec:
+  image: stablecog/helloworld
+  domain: helloworld.unbind.app

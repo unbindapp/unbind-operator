@@ -1,4 +1,4 @@
-apiVersion: app.unbind.app/v1
+apiVersion: app.unbind.cloud/v1
 kind: App
 metadata:
   labels:

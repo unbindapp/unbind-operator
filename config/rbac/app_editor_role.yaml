@@ -1,7 +1,7 @@
 # This rule is not used by the project unbind-operator itself.
 # It is provided to allow the cluster admin to help manage permissions for users.
 #
-# Grants permissions to create, update, and delete resources within the app.unbind.app.
+# Grants permissions to create, update, and delete resources within the app.unbind.cloud.
 # This role is intended for users who need to manage these resources
 # but should not control RBAC or manage permissions for others.
 
@@ -14,7 +14,7 @@ metadata:
   name: app-editor-role
 rules:
 - apiGroups:
-  - app.unbind.app
+  - app.unbind.cloud
   resources:
   - apps
   verbs:
@@ -26,7 +26,7 @@ rules:
   - update
   - watch
 - apiGroups:
-  - app.unbind.app
+  - app.unbind.cloud
   resources:
   - apps/status
   verbs:

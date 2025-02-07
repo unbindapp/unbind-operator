@@ -43,9 +43,9 @@ type AppReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=app.unbind.app,resources=apps,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=app.unbind.app,resources=apps/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=app.unbind.app,resources=apps/finalizers,verbs=update
+// +kubebuilder:rbac:groups=app.unbind.cloud,resources=apps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=app.unbind.cloud,resources=apps/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=app.unbind.cloud,resources=apps/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -90,6 +90,9 @@ func (r *AppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: ptr.To(defaultReplicas),
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"app": app.Name},
+			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{"app": app.Name},
