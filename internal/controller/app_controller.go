@@ -58,8 +58,8 @@ type AppReconciler struct {
 
 // ! TODO - add annotations or labels?
 func (r *AppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	// ! TODO - logging
-	_ = log.FromContext(ctx)
+	log := log.FromContext(ctx)
+	log.Info("Reconciling app", "name", req.Name)
 
 	var app appv1.App
 	if err := r.Get(ctx, req.NamespacedName, &app); err != nil {
@@ -68,7 +68,7 @@ func (r *AppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 	// Default replicas to 1
 	defaultReplicas := int32(1)
-	if app.Spec.Replicas != nil {
+	if app.Spec.Replicas == nil {
 		app.Spec.Replicas = ptr.To(defaultReplicas)
 	}
 
