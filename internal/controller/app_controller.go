@@ -59,7 +59,6 @@ type AppReconciler struct {
 // ! TODO - add annotations or labels?
 func (r *AppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
-	log.Info("Reconciling app", "name", req.Name)
 
 	var app appv1.App
 	if err := r.Get(ctx, req.NamespacedName, &app); err != nil {
@@ -82,6 +81,9 @@ func (r *AppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		}
 		app.Spec.Port = ptr.To(inferredPort)
 	}
+
+	// Begin reconciling
+	log.Info("Starting reconcile", "appName", req.Name, "image", app.Spec.Image, "replicas", *app.Spec.Replicas, "port", *app.Spec.Port, "domain", app.Spec.Domain)
 
 	// Create ResourceBuilder
 	rb := resourcebuilder.NewResourceBuilder(&app, r.Scheme)
