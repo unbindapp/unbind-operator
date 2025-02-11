@@ -5,5 +5,4 @@ metadata:
   namespace: unbind
 spec:
   image: stablecog/helloworld
-  replicas: 1
   domain: helloworld.unbind.app
