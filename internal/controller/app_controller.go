@@ -18,8 +18,10 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -30,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	"github.com/google/go-containerregistry/pkg/authn"
 	appv1 "github.com/unbindapp/unbind-operator/api/v1"
 	"github.com/unbindapp/unbind-operator/internal/resourcebuilder"
 	"github.com/unbindapp/unbind-operator/internal/utils"
@@ -75,7 +78,12 @@ func (r *AppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	port := app.Spec.Port
 	if port == nil {
 		// Infer the port from the image
-		inferredPort, err := utils.InferPortFromImage(app.Spec.Image)
+		// Try to get secret from image pull secret
+		auth, err := r.getRegistrySecret(ctx, app)
+		if err != nil {
+			log.Error(err, "failed to get registry secret")
+		}
+		inferredPort, err := utils.InferPortFromImage(app.Spec.Image, auth)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -117,6 +125,45 @@ func (r *AppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 	return ctrl.Result{}, nil
 
+}
+
+type DockerConfigJSON struct {
+	Auths map[string]DockerAuth `json:"auths"`
+}
+
+type DockerAuth struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Auth     string `json:"auth"`
+}
+
+func (r *AppReconciler) getRegistrySecret(ctx context.Context, app appv1.App) (*authn.Basic, error) {
+	// Get the secret using controller-runtime client
+	var secret corev1.Secret
+	if err := r.Get(ctx, client.ObjectKey{
+		Namespace: app.Namespace,
+		Name:      app.Spec.ImagePullSecret,
+	}, &secret); err != nil {
+		return nil, fmt.Errorf("failed to get image pull secret: %w", err)
+	}
+
+	// Parse the Docker config JSON from the secret
+	var dockerConfig DockerConfigJSON
+	if err := json.Unmarshal(secret.Data[".dockerconfigjson"], &dockerConfig); err != nil {
+		return nil, fmt.Errorf("failed to parse docker config: %w", err)
+	}
+
+	// Find the matching auth for our registry
+	registry := strings.Split(app.Spec.Image, "/")[0]
+	auth, exists := dockerConfig.Auths[registry]
+	if !exists {
+		return nil, fmt.Errorf("no auth found for registry: %s", registry)
+	}
+
+	return &authn.Basic{
+		Username: auth.Username,
+		Password: auth.Password,
+	}, nil
 }
 
 func (r *AppReconciler) reconcileDeployment(ctx context.Context, desired *appsv1.Deployment) error {
