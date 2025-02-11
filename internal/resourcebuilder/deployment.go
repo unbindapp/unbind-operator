@@ -26,6 +26,9 @@ func (rb *ResourceBuilder) BuildDeployment() (*appsv1.Deployment, error) {
 					Annotations: rb.buildPodAnnotations(),
 				},
 				Spec: corev1.PodSpec{
+					ImagePullSecrets: []corev1.LocalObjectReference{{
+						Name: rb.app.Spec.ImagePullSecret,
+					}},
 					Containers: []corev1.Container{{
 						Name:  "app",
 						Image: rb.app.Spec.Image,

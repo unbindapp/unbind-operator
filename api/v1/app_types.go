@@ -29,6 +29,8 @@ type AppSpec struct {
 	Image string `json:"image"`
 	// The domain to serve the app on
 	Domain string `json:"domain"`
+	// Pull secret
+	ImagePullSecret string `json:"imagePullSecret"`
 	// The number of replicas to run
 	Replicas *int32 `json:"replicas,omitempty"`
 	// The port to expose on the pod, if empty try to infer it
