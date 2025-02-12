@@ -48,7 +48,23 @@ type AppReconciler struct {
 // +kubebuilder:rbac:groups=app.unbind.cloud,resources=apps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=app.unbind.cloud,resources=apps/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=app.unbind.cloud,resources=apps/finalizers,verbs=update
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch,namespace=unbind-user
+
+// RBAC for Deployments (built-in resource)
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+
+// RBAC for StatefulSets (built-in resource)
+// +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
+
+// RBAC for Services (core API group)
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
+
+// RBAC for PersistentVolumeClaims (PVCs) (core API group)
+// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
+
+// RBAC for Ingresses (typically in the networking API group)
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete
+
+// +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
