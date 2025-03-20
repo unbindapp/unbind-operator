@@ -126,8 +126,8 @@ spec:
                 description: ProjectRef is a reference to the project this service
                   belongs to
                 type: string
-              runtime:
-                description: Runtime language (e.g. Go, Python, Node, Deno)
+              provider:
+                description: Provider (e.g. Go, Python, Node, Deno)
                 type: string
               teamRef:
                 description: TeamRef is a reference to the team that owns this service

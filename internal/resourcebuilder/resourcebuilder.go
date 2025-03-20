@@ -34,7 +34,7 @@ func (rb *ResourceBuilder) buildObjectMeta() metav1.ObjectMeta {
 
 // getCommonLabels returns labels that should be applied to all resources
 func (rb *ResourceBuilder) getCommonLabels() map[string]string {
-	return map[string]string{
+	labels := map[string]string{
 		"app.kubernetes.io/name":       rb.service.Name,
 		"app.kubernetes.io/instance":   rb.service.Name,
 		"app.kubernetes.io/managed-by": "unbind-operator",
@@ -43,6 +43,16 @@ func (rb *ResourceBuilder) getCommonLabels() map[string]string {
 		"unbind-service":               rb.service.Name,
 		"unbind-environment":           rb.service.Spec.EnvironmentID,
 	}
+
+	if rb.service.Spec.Provider != "" {
+		labels["unbind-provider"] = rb.service.Spec.Provider
+	}
+
+	if rb.service.Spec.Framework != "" {
+		labels["unbind-framework"] = rb.service.Spec.Framework
+	}
+
+	return labels
 }
 
 func (rb *ResourceBuilder) buildPodAnnotations() map[string]string {

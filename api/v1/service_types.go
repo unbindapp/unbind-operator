@@ -40,8 +40,8 @@ type ServiceSpec struct {
 	// Builder to use - railpack or docker
 	Builder string `json:"builder"`
 
-	// Runtime language (e.g. Go, Python, Node, Deno)
-	Runtime string `json:"runtime,omitempty"`
+	// Provider (e.g. Go, Python, Node, Deno)
+	Provider string `json:"provider,omitempty"`
 
 	// Framework used (e.g. Django, Next, Express, Gin)
 	Framework string `json:"framework,omitempty"`
