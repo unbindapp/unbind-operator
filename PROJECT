@@ -2,7 +2,7 @@
 # This file is used to track the info used to scaffold your project
 # and allow the plugins properly work.
 # More info: https://book.kubebuilder.io/reference/project-config.html
-domain: unbind.cloud
+domain: unbind.app
 layout:
 - go.kubebuilder.io/v4
 projectName: unbind-operator
@@ -12,9 +12,9 @@ resources:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: unbind.cloud
-  group: app
-  kind: App
+  domain: unbind.app
+  group: unbind
+  kind: Service
   path: github.com/unbindapp/unbind-operator/api/v1
   version: v1
 version: "3"

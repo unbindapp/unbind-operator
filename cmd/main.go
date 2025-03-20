@@ -37,7 +37,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	appv1 "github.com/unbindapp/unbind-operator/api/v1"
+	unbindv1 "github.com/unbindapp/unbind-operator/api/v1"
 	"github.com/unbindapp/unbind-operator/internal/controller"
 	// +kubebuilder:scaffold:imports
 )
@@ -50,7 +50,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
-	utilruntime.Must(appv1.AddToScheme(scheme))
+	utilruntime.Must(unbindv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -202,11 +202,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&controller.AppReconciler{
+	if err = (&controller.ServiceReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "App")
+		setupLog.Error(err, "unable to create controller", "controller", "Service")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

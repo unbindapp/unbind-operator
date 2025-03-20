@@ -18,48 +18,18 @@ rules:
   - update
   - watch
 - apiGroups:
-  - app.unbind.cloud
+  - ""
   resources:
-  - apps
+  - secrets
   verbs:
-  - create
-  - delete
   - get
   - list
-  - patch
-  - update
   - watch
-- apiGroups:
-  - app.unbind.cloud
-  resources:
-  - apps/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - app.unbind.cloud
-  resources:
-  - apps/status
-  verbs:
-  - get
-  - patch
-  - update
 - apiGroups:
   - apps
   resources:
   - deployments
   - statefulsets
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - coordination.k8s.io
-  resources:
-  - leases
   verbs:
   - create
   - delete
@@ -80,3 +50,29 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - unbind.unbind.app
+  resources:
+  - services
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - unbind.unbind.app
+  resources:
+  - services/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - unbind.unbind.app
+  resources:
+  - services/status
+  verbs:
+  - get
+  - patch
+  - update

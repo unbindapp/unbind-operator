@@ -1,7 +1,7 @@
 # This rule is not used by the project unbind-operator itself.
 # It is provided to allow the cluster admin to help manage permissions for users.
 #
-# Grants permissions to create, update, and delete resources within the app.unbind.cloud.
+# Grants permissions to create, update, and delete resources within the unbind.unbind.app.
 # This role is intended for users who need to manage these resources
 # but should not control RBAC or manage permissions for others.
 
@@ -11,12 +11,12 @@ metadata:
   labels:
     app.kubernetes.io/name: unbind-operator
     app.kubernetes.io/managed-by: kustomize
-  name: app-editor-role
+  name: service-editor-role
 rules:
 - apiGroups:
-  - app.unbind.cloud
+  - unbind.unbind.app
   resources:
-  - apps
+  - services
   verbs:
   - create
   - delete
@@ -26,8 +26,8 @@ rules:
   - update
   - watch
 - apiGroups:
-  - app.unbind.cloud
+  - unbind.unbind.app
   resources:
-  - apps/status
+  - services/status
   verbs:
   - get
