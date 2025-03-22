@@ -111,27 +111,38 @@ func (r *ServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 func (r *ServiceReconciler) reconcileDeployment(ctx context.Context, rb *resourcebuilder.ResourceBuilder, service v1.Service) error {
 	logger := log.FromContext(ctx)
 
-	// Build deployment
+	// Build desired deployment
 	desired, err := rb.BuildDeployment()
 	if err != nil {
 		return fmt.Errorf("building deployment: %w", err)
 	}
 
-	// Create or update the Deployment
-	op, err := ctrl.CreateOrUpdate(ctx, r.Client, desired, func() error {
-		// Set controller reference
-		if err := controllerutil.SetControllerReference(&service, desired, r.Scheme); err != nil {
-			return err
-		}
+	// Set controller reference before proceeding
+	if err := controllerutil.SetControllerReference(&service, desired, r.Scheme); err != nil {
+		return fmt.Errorf("setting controller reference: %w", err)
+	}
+
+	// Create or update using the controller-runtime helper
+	existing := &appsv1.Deployment{}
+	existing.Name = desired.Name
+	existing.Namespace = desired.Namespace
+
+	op, err := ctrl.CreateOrUpdate(ctx, r.Client, existing, func() error {
+		// Copy important metadata but preserve some fields
+		existing.Labels = desired.Labels
+		existing.Annotations = desired.Annotations
+
+		// Update spec - this is what ensures image changes are applied
+		existing.Spec = desired.Spec
 
 		return nil
 	})
 
 	if err != nil {
-		return err
+		return fmt.Errorf("creating/updating deployment: %w", err)
 	}
 
-	logger.Info("Deployment reconciled", "operation", op)
+	logger.Info("Deployment reconciled", "operation", op, "name", desired.Name)
 	return nil
 }
 
