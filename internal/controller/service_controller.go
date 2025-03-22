@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"reflect"
 
 	v1 "github.com/unbindapp/unbind-operator/api/v1"
 	"github.com/unbindapp/unbind-operator/internal/resourcebuilder"
@@ -114,35 +115,25 @@ func (r *ServiceReconciler) reconcileDeployment(ctx context.Context, rb *resourc
 	// Build desired deployment
 	desired, err := rb.BuildDeployment()
 	if err != nil {
+		logger.Error(err, "Failed to build deployment")
 		return fmt.Errorf("building deployment: %w", err)
 	}
 
-	// Set controller reference before proceeding
-	if err := controllerutil.SetControllerReference(&service, desired, r.Scheme); err != nil {
-		return fmt.Errorf("setting controller reference: %w", err)
-	}
-
-	// Create or update using the controller-runtime helper
-	existing := &appsv1.Deployment{}
-	existing.Name = desired.Name
-	existing.Namespace = desired.Namespace
-
-	op, err := ctrl.CreateOrUpdate(ctx, r.Client, existing, func() error {
-		// Copy important metadata but preserve some fields
-		existing.Labels = desired.Labels
-		existing.Annotations = desired.Annotations
-
-		// Update spec - this is what ensures image changes are applied
-		existing.Spec = desired.Spec
-
-		return nil
-	})
-
+	var existing appsv1.Deployment
+	err = r.Get(ctx, client.ObjectKey{Namespace: desired.Namespace, Name: desired.Name}, &existing)
 	if err != nil {
-		return fmt.Errorf("creating/updating deployment: %w", err)
+		if errors.IsNotFound(err) {
+			return r.Create(ctx, desired)
+		}
+		return err
 	}
 
-	logger.Info("Deployment reconciled", "operation", op, "name", desired.Name)
+	// Update if needed
+	if !reflect.DeepEqual(existing.Spec, desired.Spec) {
+		existing.Spec = desired.Spec
+		return r.Update(ctx, &existing)
+	}
+
 	return nil
 }
 
