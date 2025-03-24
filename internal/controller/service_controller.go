@@ -104,11 +104,15 @@ func (r *ServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		service.Status.URLs = []string{}
 	}
 
-	// Update service status
-	service.Status.DeploymentStatus = "Ready"
-	if err := r.Status().Update(ctx, &service); err != nil {
-		logger.Error(err, "Failed to update Service status")
-		return ctrl.Result{}, err
+	// Force version fix
+	latest := &v1.Service{}
+	if err := r.Get(ctx, types.NamespacedName{Name: service.Name, Namespace: service.Namespace}, latest); err == nil {
+		service.ResourceVersion = latest.ResourceVersion
+		service.Status.DeploymentStatus = latest.Status.DeploymentStatus
+		if err := r.Status().Update(ctx, &service); err != nil {
+			logger.Error(err, "Failed to update Service status")
+			return ctrl.Result{}, err
+		}
 	}
 
 	return ctrl.Result{}, nil
