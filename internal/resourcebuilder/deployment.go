@@ -14,10 +14,10 @@ func (rb *ResourceBuilder) BuildDeployment() (*appsv1.Deployment, error) {
 	}
 
 	var ports []corev1.ContainerPort
-	if rb.service.Spec.Config.Port != nil {
-		ports = []corev1.ContainerPort{{
-			ContainerPort: *rb.service.Spec.Config.Port,
-		}}
+	for _, port := range rb.service.Spec.Config.Ports {
+		ports = append(ports, corev1.ContainerPort{
+			ContainerPort: port.Port,
+		})
 	}
 
 	// Create the container

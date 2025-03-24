@@ -94,12 +94,14 @@ func (r *ServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	if service.Spec.Config.Host != nil && *service.Spec.Config.Host != "" && service.Spec.Config.Public {
+	if len(service.Spec.Config.Hosts) > 0 && service.Spec.Config.Public {
 		// Update status with URL
-		service.Status.URL = fmt.Sprintf("https://%s", *service.Spec.Config.Host)
+		for _, host := range service.Spec.Config.Hosts {
+			service.Status.URLs = append(service.Status.URLs, fmt.Sprintf("https://%s", host.Host))
+		}
 	} else {
 		// Reset URL in status if no host or not public
-		service.Status.URL = ""
+		service.Status.URLs = []string{}
 	}
 
 	// Update service status

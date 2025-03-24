@@ -17,6 +17,7 @@ limitations under the License.
 package v1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -73,11 +74,11 @@ type ServiceConfigSpec struct {
 	// GitBranch to build from
 	GitBranch string `json:"gitBranch,omitempty"`
 
-	// Host is the external domain for the service
-	Host *string `json:"host,omitempty"`
+	// Hosts is the external domain(s) and paths for the service
+	Hosts []HostSpec `json:"hosts,omitempty"`
 
-	// Port is the main container port
-	Port *int32 `json:"port,omitempty"`
+	// Ports are the container ports to expose
+	Ports []PortSpec `json:"port,omitempty"`
 
 	// Replicas is the number of replicas for the service
 	Replicas *int32 `json:"replicas,omitempty"`
@@ -103,11 +104,24 @@ type ServiceStatus struct {
 	// DeploymentStatus represents the status of the deployment
 	DeploymentStatus string `json:"deploymentStatus,omitempty"`
 
-	// URL is the external URL where the service is accessible
-	URL string `json:"url,omitempty"`
+	// URLs is the external URLs where the service is accessible
+	URLs []string `json:"urls,omitempty"`
 
 	// LastDeployedAt is the time when the service was last deployed
 	LastDeployedAt *metav1.Time `json:"lastDeployedAt,omitempty"`
+}
+
+type HostSpec struct {
+	// Host is the external domain for the service
+	Host string `json:"host"`
+	Path string `json:"path"`
+	Port *int32 `json:"port,omitempty"`
+}
+
+type PortSpec struct {
+	// Port is the container port to expose
+	Port     int32            `json:"port"`
+	Protocol *corev1.Protocol `json:"protocol,omitempty"`
 }
 
 // +kubebuilder:object:root=true

@@ -12,20 +12,28 @@ import (
 var ErrServiceNotNeeded = fmt.Errorf("service not needed, probably no ports configured")
 
 func (rb *ResourceBuilder) BuildService() (*corev1.Service, error) {
-	if rb.service.Spec.Config.Port == nil {
+	if len(rb.service.Spec.Config.Ports) < 1 {
 		return nil, ErrServiceNotNeeded
+	}
+
+	ports := make([]corev1.ServicePort, len(rb.service.Spec.Config.Ports))
+	for i, port := range rb.service.Spec.Config.Ports {
+		protocol := corev1.ProtocolTCP
+		if port.Protocol != nil {
+			protocol = *port.Protocol
+		}
+		ports[i] = corev1.ServicePort{
+			Protocol:   protocol,
+			Port:       port.Port,
+			TargetPort: intstr.FromInt32(port.Port),
+		}
 	}
 
 	service := &corev1.Service{
 		ObjectMeta: rb.buildObjectMeta(),
 		Spec: corev1.ServiceSpec{
 			Selector: rb.getCommonLabels(),
-			Ports: []corev1.ServicePort{{
-				Protocol: corev1.ProtocolTCP,
-				// ! TODO - don't deref this if nil
-				Port:       *rb.service.Spec.Config.Port,
-				TargetPort: intstr.FromInt32(*rb.service.Spec.Config.Port),
-			}},
+			Ports:    ports,
 		},
 	}
 

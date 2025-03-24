@@ -71,17 +71,44 @@ spec:
                   gitBranch:
                     description: GitBranch to build from
                     type: string
-                  host:
-                    description: Host is the external domain for the service
-                    type: string
+                  hosts:
+                    description: Hosts is the external domain(s) and paths for the
+                      service
+                    items:
+                      properties:
+                        host:
+                          description: Host is the external domain for the service
+                          type: string
+                        path:
+                          type: string
+                        port:
+                          format: int32
+                          type: integer
+                      required:
+                      - host
+                      - path
+                      type: object
+                    type: array
                   image:
                     description: Image is a custom Docker image if not building from
                       git
                     type: string
                   port:
-                    description: Port is the main container port
-                    format: int32
-                    type: integer
+                    description: Ports are the container ports to expose
+                    items:
+                      properties:
+                        port:
+                          description: Port is the container port to expose
+                          format: int32
+                          type: integer
+                        protocol:
+                          description: Protocol defines network protocols supported
+                            for things like container ports.
+                          type: string
+                      required:
+                      - port
+                      type: object
+                    type: array
                   public:
                     description: Public indicates whether the service is publicly
                       accessible
@@ -214,9 +241,11 @@ spec:
                   deployed
                 format: date-time
                 type: string
-              url:
-                description: URL is the external URL where the service is accessible
-                type: string
+              urls:
+                description: URLs is the external URLs where the service is accessible
+                items:
+                  type: string
+                type: array
             type: object
         type: object
     served: true
