@@ -129,6 +129,10 @@ func (r *ServiceReconciler) reconcileDeployment(ctx context.Context, rb *resourc
 	err = r.Get(ctx, client.ObjectKey{Namespace: desired.Namespace, Name: desired.Name}, &existing)
 	if err != nil {
 		if errors.IsNotFound(err) {
+			logger.Info("Creating deployment", "name", desired.Name)
+			if err := controllerutil.SetControllerReference(&service, desired, r.Scheme); err != nil {
+				return fmt.Errorf("setting controller reference: %w", err)
+			}
 			return r.Create(ctx, desired)
 		}
 		return err
@@ -136,10 +140,23 @@ func (r *ServiceReconciler) reconcileDeployment(ctx context.Context, rb *resourc
 
 	// Update if needed
 	if !reflect.DeepEqual(existing.Spec, desired.Spec) {
-		existing.Spec = desired.Spec
-		return r.Update(ctx, &existing)
+		logger.Info("Updating deployment", "name", desired.Name)
+
+		// Create a patch and apply it
+		patchData, err := client.MergeFrom(&existing).Data(desired)
+		if err != nil {
+			return fmt.Errorf("creating patch: %w", err)
+		}
+
+		// Set controller reference
+		if err := controllerutil.SetControllerReference(&service, desired, r.Scheme); err != nil {
+			return fmt.Errorf("setting controller reference: %w", err)
+		}
+
+		return r.Patch(ctx, desired, client.RawPatch(types.StrategicMergePatchType, patchData))
 	}
 
+	logger.Info("Deployment already up to date")
 	return nil
 }
 
@@ -197,15 +214,23 @@ func (r *ServiceReconciler) reconcileService(ctx context.Context, rb *resourcebu
 	// Update if needed
 	if !reflect.DeepEqual(existing.Spec, desired.Spec) {
 		logger.Info("Updating service", "name", desired.Name)
+
 		// Preserve ClusterIP which is immutable
 		desired.Spec.ClusterIP = existing.Spec.ClusterIP
 		// Update other fields that may need to be preserved here
 
-		existing.Spec = desired.Spec
-		if err := controllerutil.SetControllerReference(&service, &existing, r.Scheme); err != nil {
+		// Set controller reference before creating the patch
+		if err := controllerutil.SetControllerReference(&service, desired, r.Scheme); err != nil {
 			return fmt.Errorf("setting controller reference: %w", err)
 		}
-		return r.Update(ctx, &existing)
+
+		// Create a patch and apply it
+		patchData, err := client.MergeFrom(&existing).Data(desired)
+		if err != nil {
+			return fmt.Errorf("creating patch: %w", err)
+		}
+
+		return r.Patch(ctx, desired, client.RawPatch(types.StrategicMergePatchType, patchData))
 	}
 
 	logger.Info("Service already up to date")
@@ -266,11 +291,19 @@ func (r *ServiceReconciler) reconcileIngress(ctx context.Context, rb *resourcebu
 	// Update if needed
 	if !reflect.DeepEqual(existing.Spec, desired.Spec) {
 		logger.Info("Updating ingress", "name", desired.Name)
-		existing.Spec = desired.Spec
-		if err := controllerutil.SetControllerReference(&service, &existing, r.Scheme); err != nil {
+
+		// Set controller reference before creating the patch
+		if err := controllerutil.SetControllerReference(&service, desired, r.Scheme); err != nil {
 			return fmt.Errorf("setting controller reference: %w", err)
 		}
-		return r.Update(ctx, &existing)
+
+		// Create a patch and apply it
+		patchData, err := client.MergeFrom(&existing).Data(desired)
+		if err != nil {
+			return fmt.Errorf("creating patch: %w", err)
+		}
+
+		return r.Patch(ctx, desired, client.RawPatch(types.StrategicMergePatchType, patchData))
 	}
 
 	logger.Info("Ingress already up to date")
