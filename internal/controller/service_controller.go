@@ -36,6 +36,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+const (
+	serviceFinalizer = "service.unbind.unbind.app/finalizer"
+)
+
 // ServiceReconciler reconciles a Service object
 type ServiceReconciler struct {
 	client.Client
@@ -148,8 +152,6 @@ func (r *ServiceReconciler) reconcileService(ctx context.Context, rb *resourcebu
 	// If the service is not needed (no port configured), delete any existing service
 	if err == resourcebuilder.ErrServiceNotNeeded {
 		logger.Info("Service not needed, deleting if exists")
-
-		// Define the Service object to check for existence
 		existingService := &corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      service.Name,
@@ -157,48 +159,54 @@ func (r *ServiceReconciler) reconcileService(ctx context.Context, rb *resourcebu
 			},
 		}
 
-		// Check if the service exists
 		err := r.Get(ctx, types.NamespacedName{Name: existingService.Name, Namespace: existingService.Namespace}, existingService)
 		if err != nil {
 			if errors.IsNotFound(err) {
-				// Already deleted or doesn't exist, nothing to do
 				logger.Info("Service already deleted or doesn't exist")
 				return nil
 			}
-			// Error getting service
 			return fmt.Errorf("checking if service exists: %w", err)
 		}
 
-		// Service exists and needs to be deleted
 		logger.Info("Deleting service", "name", existingService.Name)
 		if err := r.Delete(ctx, existingService); err != nil {
 			return fmt.Errorf("deleting service: %w", err)
 		}
-
 		return nil
 	} else if err != nil {
-		// Some other error occurred
+		logger.Error(err, "Failed to build service")
 		return fmt.Errorf("building service: %w", err)
 	}
 
-	// Service is needed, proceed with create or update
-	logger.Info("Service needed, creating or updating")
-
-	// Create or update the Service
-	op, err := ctrl.CreateOrUpdate(ctx, r.Client, desired, func() error {
-		// Set controller reference
-		if err := controllerutil.SetControllerReference(&service, desired, r.Scheme); err != nil {
-			return err
-		}
-
-		return nil
-	})
-
+	// Service is needed, get existing or create new
+	var existing corev1.Service
+	err = r.Get(ctx, client.ObjectKey{Namespace: desired.Namespace, Name: desired.Name}, &existing)
 	if err != nil {
-		return fmt.Errorf("creating or updating service: %w", err)
+		if errors.IsNotFound(err) {
+			logger.Info("Creating service", "name", desired.Name)
+			if err := controllerutil.SetControllerReference(&service, desired, r.Scheme); err != nil {
+				return fmt.Errorf("setting controller reference: %w", err)
+			}
+			return r.Create(ctx, desired)
+		}
+		return fmt.Errorf("getting service: %w", err)
 	}
 
-	logger.Info("Service reconciled", "operation", op)
+	// Update if needed
+	if !reflect.DeepEqual(existing.Spec, desired.Spec) {
+		logger.Info("Updating service", "name", desired.Name)
+		// Preserve ClusterIP which is immutable
+		desired.Spec.ClusterIP = existing.Spec.ClusterIP
+		// Update other fields that may need to be preserved here
+
+		existing.Spec = desired.Spec
+		if err := controllerutil.SetControllerReference(&service, &existing, r.Scheme); err != nil {
+			return fmt.Errorf("setting controller reference: %w", err)
+		}
+		return r.Update(ctx, &existing)
+	}
+
+	logger.Info("Service already up to date")
 	return nil
 }
 
@@ -213,8 +221,6 @@ func (r *ServiceReconciler) reconcileIngress(ctx context.Context, rb *resourcebu
 	// If the ingress is not needed (no host or not public), delete any existing ingress
 	if err == resourcebuilder.ErrIngressNotNeeded {
 		logger.Info("Ingress not needed, deleting if exists")
-
-		// Define the Ingress object to check for existence
 		existingIngress := &networkingv1.Ingress{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      service.Name,
@@ -222,61 +228,51 @@ func (r *ServiceReconciler) reconcileIngress(ctx context.Context, rb *resourcebu
 			},
 		}
 
-		// Check if the ingress exists
 		err := r.Get(ctx, types.NamespacedName{Name: existingIngress.Name, Namespace: existingIngress.Namespace}, existingIngress)
 		if err != nil {
 			if errors.IsNotFound(err) {
-				// Already deleted or doesn't exist, nothing to do
 				logger.Info("Ingress already deleted or doesn't exist")
 				return nil
 			}
-			// Error getting ingress
 			return fmt.Errorf("checking if ingress exists: %w", err)
 		}
 
-		// Ingress exists and needs to be deleted
 		logger.Info("Deleting ingress", "name", existingIngress.Name)
 		if err := r.Delete(ctx, existingIngress); err != nil {
 			return fmt.Errorf("deleting ingress: %w", err)
 		}
-
 		return nil
 	} else if err != nil {
-		// Some other error occurred
+		logger.Error(err, "Failed to build ingress")
 		return fmt.Errorf("building ingress: %w", err)
 	}
 
-	// Ingress is needed, proceed with create or update
-	logger.Info("Ingress needed, creating or updating")
-
-	// Create or update the Ingress
-	op, err := ctrl.CreateOrUpdate(ctx, r.Client, desired, func() error {
-		// Set controller reference
-		if err := controllerutil.SetControllerReference(&service, desired, r.Scheme); err != nil {
-			return err
-		}
-		return nil
-	})
-
+	// Ingress is needed, get existing or create new
+	var existing networkingv1.Ingress
+	err = r.Get(ctx, client.ObjectKey{Namespace: desired.Namespace, Name: desired.Name}, &existing)
 	if err != nil {
-		return fmt.Errorf("creating or updating ingress: %w", err)
+		if errors.IsNotFound(err) {
+			logger.Info("Creating ingress", "name", desired.Name)
+			if err := controllerutil.SetControllerReference(&service, desired, r.Scheme); err != nil {
+				return fmt.Errorf("setting controller reference: %w", err)
+			}
+			return r.Create(ctx, desired)
+		}
+		return fmt.Errorf("getting ingress: %w", err)
 	}
 
-	logger.Info("Ingress reconciled", "operation", op)
+	// Update if needed
+	if !reflect.DeepEqual(existing.Spec, desired.Spec) {
+		logger.Info("Updating ingress", "name", desired.Name)
+		existing.Spec = desired.Spec
+		if err := controllerutil.SetControllerReference(&service, &existing, r.Scheme); err != nil {
+			return fmt.Errorf("setting controller reference: %w", err)
+		}
+		return r.Update(ctx, &existing)
+	}
+
+	logger.Info("Ingress already up to date")
 	return nil
-}
-
-// getCommonLabels returns labels that should be applied to all resources
-func getCommonLabels(service v1.Service) map[string]string {
-	return map[string]string{
-		"app.kubernetes.io/name":       service.Name,
-		"app.kubernetes.io/instance":   service.Name,
-		"app.kubernetes.io/managed-by": "unbind-operator",
-		"unbind-team":                  service.Spec.TeamRef,
-		"unbind-project":               service.Spec.ProjectRef,
-		"unbind-service":               service.Name,
-		"unbind-environment":           service.Spec.EnvironmentID,
-	}
 }
 
 // SetupWithManager sets up the controller with the Manager
