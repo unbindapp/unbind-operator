@@ -93,7 +93,7 @@ spec:
                     description: Image is a custom Docker image if not building from
                       git
                     type: string
-                  port:
+                  ports:
                     description: Ports are the container ports to expose
                     items:
                       properties:

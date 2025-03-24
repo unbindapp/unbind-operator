@@ -78,7 +78,7 @@ type ServiceConfigSpec struct {
 	Hosts []HostSpec `json:"hosts,omitempty"`
 
 	// Ports are the container ports to expose
-	Ports []PortSpec `json:"port,omitempty"`
+	Ports []PortSpec `json:"ports,omitempty"`
 
 	// Replicas is the number of replicas for the service
 	Replicas *int32 `json:"replicas,omitempty"`
