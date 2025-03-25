@@ -104,11 +104,31 @@ func (r *ServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		service.Status.URLs = []string{}
 	}
 
-	// Force version fix
-	latest := &v1.Service{}
-	if err := r.Get(ctx, types.NamespacedName{Name: service.Name, Namespace: service.Namespace}, latest); err == nil {
-		service.ResourceVersion = latest.ResourceVersion
-		service.Status.DeploymentStatus = latest.Status.DeploymentStatus
+	// Only update status if it has changed
+	needsStatusUpdate := false
+
+	// Check if deployment status changed
+	if service.Status.DeploymentStatus != "Ready" {
+		service.Status.DeploymentStatus = "Ready"
+		needsStatusUpdate = true
+	}
+
+	// Create a new URLs slice instead of appending
+	var newURLs []string
+	if len(service.Spec.Config.Hosts) > 0 && service.Spec.Config.Public {
+		for _, host := range service.Spec.Config.Hosts {
+			newURLs = append(newURLs, fmt.Sprintf("https://%s", host.Host))
+		}
+	}
+
+	// Check if URLs changed
+	if !reflect.DeepEqual(service.Status.URLs, newURLs) {
+		service.Status.URLs = newURLs
+		needsStatusUpdate = true
+	}
+
+	// Only update status if needed
+	if needsStatusUpdate {
 		if err := r.Status().Update(ctx, &service); err != nil {
 			logger.Error(err, "Failed to update Service status")
 			return ctrl.Result{}, err
@@ -198,13 +218,31 @@ func (r *ServiceReconciler) reconcileService(ctx context.Context, rb *resourcebu
 		return fmt.Errorf("getting service: %w", err)
 	}
 
-	// Update if needed
-	if !reflect.DeepEqual(existing.Spec, desired.Spec) {
-		logger.Info("Updating service", "name", desired.Name)
-		// Preserve ClusterIP which is immutable
-		desired.Spec.ClusterIP = existing.Spec.ClusterIP
-		// Update other fields that may need to be preserved here
+	// Copy ClusterIP which is immutable
+	desired.Spec.ClusterIP = existing.Spec.ClusterIP
 
+	// Compare specs to determine if an update is needed
+	// Only compare relevant fields to avoid unnecessary updates
+	needsUpdate := false
+
+	// Compare ports
+	if !reflect.DeepEqual(existing.Spec.Ports, desired.Spec.Ports) {
+		needsUpdate = true
+	}
+
+	// Compare selector
+	if !reflect.DeepEqual(existing.Spec.Selector, desired.Spec.Selector) {
+		needsUpdate = true
+	}
+
+	// Compare type
+	if existing.Spec.Type != desired.Spec.Type {
+		needsUpdate = true
+	}
+
+	// Only update if needed
+	if needsUpdate {
+		logger.Info("Updating service", "name", desired.Name)
 		existing.Spec = desired.Spec
 		if err := controllerutil.SetControllerReference(&service, &existing, r.Scheme); err != nil {
 			return fmt.Errorf("setting controller reference: %w", err)
