@@ -69,7 +69,29 @@ func (r *ServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	// Check if service is being deleted
 	if !service.ObjectMeta.DeletionTimestamp.IsZero() {
-		// The object is being deleted
+		// Object is being deleted
+		if controllerutil.ContainsFinalizer(&service, serviceFinalizer) {
+			// Run finalization logic
+			if err := r.finalizeService(ctx, &service); err != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to finalize service: %w", err)
+			}
+
+			// Remove finalizer once cleanup is done
+			controllerutil.RemoveFinalizer(&service, serviceFinalizer)
+			if err := r.Update(ctx, &service); err != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to remove finalizer: %w", err)
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// Add finalizer if it doesn't exist
+	if !controllerutil.ContainsFinalizer(&service, serviceFinalizer) {
+		controllerutil.AddFinalizer(&service, serviceFinalizer)
+		if err := r.Update(ctx, &service); err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to add finalizer: %w", err)
+		}
+		// Return early as the update will trigger another reconciliation
 		return ctrl.Result{}, nil
 	}
 
@@ -94,26 +116,7 @@ func (r *ServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	if len(service.Spec.Config.Hosts) > 0 && service.Spec.Config.Public {
-		// Update status with URL
-		for _, host := range service.Spec.Config.Hosts {
-			service.Status.URLs = append(service.Status.URLs, fmt.Sprintf("https://%s", host.Host))
-		}
-	} else {
-		// Reset URL in status if no host or not public
-		service.Status.URLs = []string{}
-	}
-
-	// Only update status if it has changed
-	needsStatusUpdate := false
-
-	// Check if deployment status changed
-	if service.Status.DeploymentStatus != "Ready" {
-		service.Status.DeploymentStatus = "Ready"
-		needsStatusUpdate = true
-	}
-
-	// Create a new URLs slice instead of appending
+	// Update status
 	var newURLs []string
 	if len(service.Spec.Config.Hosts) > 0 && service.Spec.Config.Public {
 		for _, host := range service.Spec.Config.Hosts {
@@ -121,13 +124,18 @@ func (r *ServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
-	// Check if URLs changed
+	// Only update status if needed
+	needsStatusUpdate := false
+	if service.Status.DeploymentStatus != "Ready" {
+		service.Status.DeploymentStatus = "Ready"
+		needsStatusUpdate = true
+	}
+
 	if !reflect.DeepEqual(service.Status.URLs, newURLs) {
 		service.Status.URLs = newURLs
 		needsStatusUpdate = true
 	}
 
-	// Only update status if needed
 	if needsStatusUpdate {
 		if err := r.Status().Update(ctx, &service); err != nil {
 			logger.Error(err, "Failed to update Service status")
@@ -136,6 +144,52 @@ func (r *ServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// finalizeService handles resource cleanup when the Service CR is being deleted
+func (r *ServiceReconciler) finalizeService(ctx context.Context, service *v1.Service) error {
+	logger := log.FromContext(ctx)
+	logger.Info("Finalizing Service", "service", fmt.Sprintf("%s/%s", service.Namespace, service.Name))
+
+	// Delete dependent resources
+	// Since we've set ownership references, Kubernetes will automatically delete owned resources
+	// But we can explicitly delete them here to ensure they're gone before finalizer is removed
+
+	// Check for and delete Deployment
+	deployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      service.Name,
+			Namespace: service.Namespace,
+		},
+	}
+	if err := r.Delete(ctx, deployment); client.IgnoreNotFound(err) != nil {
+		return fmt.Errorf("failed to delete deployment: %w", err)
+	}
+
+	// Check for and delete Service
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      service.Name,
+			Namespace: service.Namespace,
+		},
+	}
+	if err := r.Delete(ctx, svc); client.IgnoreNotFound(err) != nil {
+		return fmt.Errorf("failed to delete service: %w", err)
+	}
+
+	// Check for and delete Ingress
+	ingress := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      service.Name,
+			Namespace: service.Namespace,
+		},
+	}
+	if err := r.Delete(ctx, ingress); client.IgnoreNotFound(err) != nil {
+		return fmt.Errorf("failed to delete ingress: %w", err)
+	}
+
+	logger.Info("Service finalization complete")
+	return nil
 }
 
 // reconcileDeployment ensures the Deployment exists and is configured correctly

@@ -115,13 +115,13 @@ type HostSpec struct {
 	// Host is the external domain for the service
 	Host string `json:"host"`
 	Path string `json:"path"`
-	Port *int32 `json:"port,omitempty"`
+	Port *int32 `json:"port,omitempty" required:"false"`
 }
 
 type PortSpec struct {
 	// Port is the container port to expose
 	Port     int32            `json:"port"`
-	Protocol *corev1.Protocol `json:"protocol,omitempty"`
+	Protocol *corev1.Protocol `json:"protocol,omitempty" required:"false"`
 }
 
 // +kubebuilder:object:root=true
