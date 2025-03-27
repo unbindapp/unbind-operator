@@ -31,7 +31,7 @@ func (rb *ResourceBuilder) BuildService() (*corev1.Service, error) {
 	service := &corev1.Service{
 		ObjectMeta: rb.buildObjectMeta(),
 		Spec: corev1.ServiceSpec{
-			Selector: rb.getCommonLabels(),
+			Selector: rb.getLabelSelectors(),
 			Ports:    ports,
 		},
 	}

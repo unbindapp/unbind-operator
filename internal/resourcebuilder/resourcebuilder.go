@@ -32,17 +32,23 @@ func (rb *ResourceBuilder) buildObjectMeta() metav1.ObjectMeta {
 	}
 }
 
-// getCommonLabels returns labels that should be applied to all resources
-func (rb *ResourceBuilder) getCommonLabels() map[string]string {
-	labels := map[string]string{
+// Base labels for match selector, these are immutable labels
+func (rb *ResourceBuilder) getLabelSelectors() map[string]string {
+	return map[string]string{
 		"app.kubernetes.io/name":       rb.service.Name,
 		"app.kubernetes.io/instance":   rb.service.Name,
 		"app.kubernetes.io/managed-by": "unbind-operator",
-		"unbind-team":                  rb.service.Spec.TeamRef,
-		"unbind-project":               rb.service.Spec.ProjectRef,
-		"unbind-service":               rb.service.Name,
-		"unbind-environment":           rb.service.Spec.EnvironmentID,
 	}
+}
+
+// getCommonLabels returns labels that should be applied to all resources
+func (rb *ResourceBuilder) getCommonLabels() map[string]string {
+	labels := rb.getLabelSelectors()
+
+	labels["unbind-team"] = rb.service.Spec.TeamRef
+	labels["unbind-project"] = rb.service.Spec.ProjectRef
+	labels["unbind-service"] = rb.service.Name
+	labels["unbind-environment"] = rb.service.Spec.EnvironmentID
 
 	if rb.service.Spec.Provider != "" {
 		labels["unbind-provider"] = rb.service.Spec.Provider
