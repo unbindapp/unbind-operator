@@ -69,7 +69,7 @@ type ServiceSpec struct {
 	ProjectRef string `json:"projectRef"`
 
 	// EnvironmentRef references the environment this service belongs to
-	EnvironmentRef string `json:"environmentId"`
+	EnvironmentRef string `json:"environmentRef"`
 }
 
 // ServiceConfigSpec defines configuration for a service
