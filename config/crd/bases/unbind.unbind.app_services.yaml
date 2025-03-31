@@ -130,7 +130,7 @@ spec:
                 description: DisplayName is a human-friendly name for the service
                 type: string
               environmentId:
-                description: EnvironmentID references the environment this service
+                description: EnvironmentRef references the environment this service
                   belongs to
                 type: string
               framework:
@@ -155,6 +155,10 @@ spec:
                 type: string
               provider:
                 description: Provider (e.g. Go, Python, Node, Deno)
+                type: string
+              serviceRef:
+                description: ServiceRef is a reference to the service this service
+                  is based on
                 type: string
               teamRef:
                 description: TeamRef is a reference to the team that owns this service

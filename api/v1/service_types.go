@@ -47,9 +47,6 @@ type ServiceSpec struct {
 	// Framework used (e.g. Django, Next, Express, Gin)
 	Framework string `json:"framework,omitempty"`
 
-	// EnvironmentID references the environment this service belongs to
-	EnvironmentID string `json:"environmentId"`
-
 	// GitHubInstallationID for GitHub integration
 	GitHubInstallationID *int64 `json:"githubInstallationId,omitempty"`
 
@@ -62,11 +59,17 @@ type ServiceSpec struct {
 	// Configuration for the service
 	Config ServiceConfigSpec `json:"config"`
 
+	// ServiceRef is a reference to the service this service is based on
+	ServiceRef string `json:"serviceRef,omitempty"`
+
 	// TeamRef is a reference to the team that owns this service
 	TeamRef string `json:"teamRef"`
 
 	// ProjectRef is a reference to the project this service belongs to
 	ProjectRef string `json:"projectRef"`
+
+	// EnvironmentRef references the environment this service belongs to
+	EnvironmentRef string `json:"environmentId"`
 }
 
 // ServiceConfigSpec defines configuration for a service
