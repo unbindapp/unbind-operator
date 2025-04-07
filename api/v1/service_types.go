@@ -17,8 +17,10 @@ limitations under the License.
 package v1
 
 import (
+	templates "github.com/unbindapp/unbind-api/pkg/templates"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -35,10 +37,10 @@ type ServiceSpec struct {
 	// Description of the service
 	Description string `json:"description,omitempty"`
 
-	// Type of service - git or dockerfile
+	// Type of service - git or dockerfile or template
 	Type string `json:"type"`
 
-	// Builder to use - railpack or docker
+	// Builder to use - railpack or docker or template
 	Builder string `json:"builder"`
 
 	// Provider (e.g. Go, Python, Node, Deno)
@@ -86,9 +88,6 @@ type ServiceConfigSpec struct {
 	// Replicas is the number of replicas for the service
 	Replicas *int32 `json:"replicas,omitempty"`
 
-	// AutoDeploy indicates whether to automatically deploy on git push
-	AutoDeploy bool `json:"autoDeploy,omitempty"`
-
 	// RunCommand is a custom run command
 	RunCommand *string `json:"runCommand,omitempty"`
 
@@ -97,6 +96,9 @@ type ServiceConfigSpec struct {
 
 	// Image is a custom Docker image if not building from git
 	Image string `json:"image"`
+
+	// Templates are the templates to use for this service
+	Template TemplateSpec `json:"template"`
 }
 
 // ServiceStatus defines the observed state of Service
@@ -125,6 +127,17 @@ type PortSpec struct {
 	// Port is the container port to expose
 	Port     int32            `json:"port"`
 	Protocol *corev1.Protocol `json:"protocol,omitempty" required:"false"`
+}
+
+type TemplateSpec struct {
+	// Name of the template
+	Name string `json:"name"`
+	// Version of individual template
+	Version string `json:"version"`
+	// VersionRef is a reference to the version of the template
+	VersionRef string                         `json:"versionRef"`
+	Category   templates.TemplateCategoryName `json:"category"`
+	Config     runtime.RawExtension           `json:"config,omitempty"`
 }
 
 // +kubebuilder:object:root=true

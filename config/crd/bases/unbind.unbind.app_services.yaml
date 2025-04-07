@@ -59,15 +59,11 @@ spec:
             description: ServiceSpec defines the desired state of the Service
             properties:
               builder:
-                description: Builder to use - railpack or docker
+                description: Builder to use - railpack or docker or template
                 type: string
               config:
                 description: Configuration for the service
                 properties:
-                  autoDeploy:
-                    description: AutoDeploy indicates whether to automatically deploy
-                      on git push
-                    type: boolean
                   gitBranch:
                     description: GitBranch to build from
                     type: string
@@ -120,8 +116,34 @@ spec:
                   runCommand:
                     description: RunCommand is a custom run command
                     type: string
+                  template:
+                    description: Templates are the templates to use for this service
+                    properties:
+                      category:
+                        description: Enum for category name
+                        type: string
+                      config:
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
+                      name:
+                        description: Name of the template
+                        type: string
+                      version:
+                        description: Version of individual template
+                        type: string
+                      versionRef:
+                        description: VersionRef is a reference to the version of the
+                          template
+                        type: string
+                    required:
+                    - category
+                    - name
+                    - version
+                    - versionRef
+                    type: object
                 required:
                 - image
+                - template
                 type: object
               description:
                 description: Description of the service
@@ -129,7 +151,7 @@ spec:
               displayName:
                 description: DisplayName is a human-friendly name for the service
                 type: string
-              environmentId:
+              environmentRef:
                 description: EnvironmentRef references the environment this service
                   belongs to
                 type: string
@@ -164,12 +186,12 @@ spec:
                 description: TeamRef is a reference to the team that owns this service
                 type: string
               type:
-                description: Type of service - git or dockerfile
+                description: Type of service - git or dockerfile or template
                 type: string
             required:
             - builder
             - config
-            - environmentId
+            - environmentRef
             - kubernetesSecret
             - name
             - projectRef

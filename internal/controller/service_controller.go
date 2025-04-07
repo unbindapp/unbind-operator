@@ -27,7 +27,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -98,6 +100,22 @@ func (r *ServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// Build resource builder
 	rb := resourcebuilder.NewResourceBuilder(&service, r.Scheme)
 
+	// Determine if this is a template
+	if service.Spec.Type == "template" {
+		// ! COnvert this to a reconcilation function in addition to the others
+		runtimeObjects, err := rb.BuildTemplate(ctx, logger)
+		if err != nil {
+			logger.Error(err, "Failed to build template")
+			return ctrl.Result{}, err
+		}
+
+		if err := r.reconcileRuntimeObjects(ctx, runtimeObjects, service); err != nil {
+			logger.Error(err, "Failed to reconcile runtime objects")
+			return ctrl.Result{}, err
+		}
+	}
+
+	// * Generic path
 	// Create or update the Deployment
 	if err := r.reconcileDeployment(ctx, rb, service); err != nil {
 		logger.Error(err, "Failed to reconcile Deployment")
@@ -371,6 +389,491 @@ func (r *ServiceReconciler) reconcileIngress(ctx context.Context, rb *resourcebu
 
 	logger.Info("Ingress already up to date")
 	return nil
+}
+
+// reconcileRuntimeObjects ensures all provided runtime.Objects exist and are configured correctly
+func (r *ServiceReconciler) reconcileRuntimeObjects(ctx context.Context, objects []runtime.Object, service v1.Service) error {
+	logger := log.FromContext(ctx)
+
+	for _, obj := range objects {
+		// Get metadata from the object
+		metaObj, err := meta.Accessor(obj)
+		if err != nil {
+			logger.Error(err, "Failed to get object metadata")
+			return fmt.Errorf("accessing object metadata: %w", err)
+		}
+
+		// Get the object type for better logging
+		gvk := obj.GetObjectKind().GroupVersionKind()
+		kind := gvk.Kind
+		if kind == "" {
+			kind = fmt.Sprintf("%T", obj)
+		}
+
+		// Check if the object exists
+		existing, err := r.getExistingObject(ctx, obj)
+		if err != nil {
+			if !errors.IsNotFound(err) {
+				logger.Error(err, "Failed to get existing object",
+					"kind", kind,
+					"name", metaObj.GetName(),
+					"namespace", metaObj.GetNamespace())
+				return fmt.Errorf("getting existing object: %w", err)
+			}
+
+			// Object doesn't exist, create it
+			logger.Info("Creating object",
+				"kind", kind,
+				"name", metaObj.GetName(),
+				"namespace", metaObj.GetNamespace(),
+				"apiVersion", gvk.GroupVersion().String())
+
+			// Set controller reference
+			if err := controllerutil.SetControllerReference(&service, metaObj, r.Scheme); err != nil {
+				return fmt.Errorf("setting controller reference: %w", err)
+			}
+
+			// Convert to unstructured for better CRD support if needed
+			var createObj client.Object
+
+			if clientObj, ok := obj.(client.Object); ok {
+				createObj = clientObj
+			} else {
+				// Convert to unstructured
+				u := &unstructured.Unstructured{}
+				u.SetGroupVersionKind(gvk)
+
+				objData, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+				if err != nil {
+					return fmt.Errorf("converting object to unstructured: %w", err)
+				}
+				u.SetUnstructuredContent(objData)
+				createObj = u
+			}
+
+			if err := r.Create(ctx, createObj); err != nil {
+				return fmt.Errorf("creating %s %s/%s: %w",
+					kind,
+					metaObj.GetNamespace(),
+					metaObj.GetName(),
+					err)
+			}
+			continue
+		}
+
+		// Object exists, check if update is needed
+		needsUpdate, err := r.objectNeedsUpdate(obj, existing)
+		if err != nil {
+			return fmt.Errorf("checking if update needed: %w", err)
+		}
+
+		if needsUpdate {
+			logger.Info("Updating object",
+				"kind", kind,
+				"name", metaObj.GetName(),
+				"namespace", metaObj.GetNamespace(),
+				"apiVersion", gvk.GroupVersion().String())
+
+			// Update the existing object with the desired spec
+			if err := r.updateObject(existing, obj); err != nil {
+				return fmt.Errorf("updating object spec: %w", err)
+			}
+
+			// Make sure controller reference is set
+			existingMeta, err := meta.Accessor(existing)
+			if err != nil {
+				return fmt.Errorf("getting metadata from existing object: %w", err)
+			}
+
+			if err := controllerutil.SetControllerReference(&service, existingMeta, r.Scheme); err != nil {
+				return fmt.Errorf("setting controller reference: %w", err)
+			}
+
+			// Convert to client.Object
+			var updateObj client.Object
+
+			if clientObj, ok := existing.(client.Object); ok {
+				updateObj = clientObj
+			} else {
+				return fmt.Errorf("existing object is not a client.Object: %T", existing)
+			}
+
+			if err := r.Update(ctx, updateObj); err != nil {
+				return fmt.Errorf("updating %s %s/%s: %w",
+					kind,
+					existingMeta.GetNamespace(),
+					existingMeta.GetName(),
+					err)
+			}
+		} else {
+			logger.Info("Object already up to date",
+				"kind", kind,
+				"name", metaObj.GetName(),
+				"namespace", metaObj.GetNamespace())
+		}
+	}
+
+	return nil
+}
+
+// getExistingObject gets an existing object of the same type and with the same name/namespace
+func (r *ServiceReconciler) getExistingObject(ctx context.Context, obj runtime.Object) (runtime.Object, error) {
+	// Get metadata for name and namespace
+	metaObj, err := meta.Accessor(obj)
+	if err != nil {
+		return nil, fmt.Errorf("getting metadata: %w", err)
+	}
+
+	// Get the object type
+	gvk := obj.GetObjectKind().GroupVersionKind()
+
+	u := &unstructured.Unstructured{}
+	u.SetGroupVersionKind(gvk)
+
+	err = r.Get(ctx, client.ObjectKey{
+		Namespace: metaObj.GetNamespace(),
+		Name:      metaObj.GetName(),
+	}, u)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// For built-in types, convert back to the specific type for easier handling
+	// but keep as unstructured for CRDs and unknown types
+	switch gvk.Kind {
+	case "Deployment":
+		deployment := &appsv1.Deployment{}
+		err = runtime.DefaultUnstructuredConverter.FromUnstructured(u.Object, deployment)
+		if err != nil {
+			return nil, fmt.Errorf("converting unstructured to Deployment: %w", err)
+		}
+		return deployment, nil
+	case "Service":
+		service := &corev1.Service{}
+		err = runtime.DefaultUnstructuredConverter.FromUnstructured(u.Object, service)
+		if err != nil {
+			return nil, fmt.Errorf("converting unstructured to Service: %w", err)
+		}
+		return service, nil
+	case "Ingress":
+		ingress := &networkingv1.Ingress{}
+		err = runtime.DefaultUnstructuredConverter.FromUnstructured(u.Object, ingress)
+		if err != nil {
+			return nil, fmt.Errorf("converting unstructured to Ingress: %w", err)
+		}
+		return ingress, nil
+	default:
+		// For CRDs or unknown types, return as unstructured
+		return u, nil
+	}
+}
+
+// objectNeedsUpdate determines if an object needs to be updated
+func (r *ServiceReconciler) objectNeedsUpdate(desired, existing runtime.Object) (bool, error) {
+	// Handle unstructured objects (CRDs and unknown types)
+	if _, ok := existing.(*unstructured.Unstructured); ok {
+		return r.genericObjectNeedsUpdate(desired, existing)
+	}
+
+	// Handle known types
+	switch desiredTyped := desired.(type) {
+	case *appsv1.Deployment:
+		existingTyped, ok := existing.(*appsv1.Deployment)
+		if !ok {
+			return false, fmt.Errorf("existing object is not a Deployment")
+		}
+		return !reflect.DeepEqual(existingTyped.Spec, desiredTyped.Spec), nil
+
+	case *corev1.Service:
+		existingTyped, ok := existing.(*corev1.Service)
+		if !ok {
+			return false, fmt.Errorf("existing object is not a Service")
+		}
+
+		// For services, only compare relevant fields
+		needsUpdate := false
+
+		// Compare ports
+		if !reflect.DeepEqual(existingTyped.Spec.Ports, desiredTyped.Spec.Ports) {
+			needsUpdate = true
+		}
+
+		// Compare selector
+		if !reflect.DeepEqual(existingTyped.Spec.Selector, desiredTyped.Spec.Selector) {
+			needsUpdate = true
+		}
+
+		// Compare type
+		if existingTyped.Spec.Type != desiredTyped.Spec.Type {
+			needsUpdate = true
+		}
+
+		return needsUpdate, nil
+
+	case *networkingv1.Ingress:
+		existingTyped, ok := existing.(*networkingv1.Ingress)
+		if !ok {
+			return false, fmt.Errorf("existing object is not an Ingress")
+		}
+		return !reflect.DeepEqual(existingTyped.Spec, desiredTyped.Spec), nil
+
+	case *corev1.ConfigMap:
+		existingTyped, ok := existing.(*corev1.ConfigMap)
+		if !ok {
+			return false, fmt.Errorf("existing object is not a ConfigMap")
+		}
+		return !reflect.DeepEqual(existingTyped.Data, desiredTyped.Data) ||
+			!reflect.DeepEqual(existingTyped.BinaryData, desiredTyped.BinaryData), nil
+
+	case *corev1.Secret:
+		existingTyped, ok := existing.(*corev1.Secret)
+		if !ok {
+			return false, fmt.Errorf("existing object is not a Secret")
+		}
+		return !reflect.DeepEqual(existingTyped.Data, desiredTyped.Data) ||
+			!reflect.DeepEqual(existingTyped.StringData, desiredTyped.StringData) ||
+			existingTyped.Type != desiredTyped.Type, nil
+
+	default:
+		// For unknown typed objects, fallback to generic comparison
+		return r.genericObjectNeedsUpdate(desired, existing)
+	}
+}
+
+// genericObjectNeedsUpdate provides a generic comparison for objects without type-specific logic
+func (r *ServiceReconciler) genericObjectNeedsUpdate(desired, existing runtime.Object) (bool, error) {
+	// Convert both objects to unstructured to allow for generic field access
+	desiredUnstructured, err := runtime.DefaultUnstructuredConverter.ToUnstructured(desired)
+	if err != nil {
+		return false, fmt.Errorf("converting desired object to unstructured: %w", err)
+	}
+
+	existingUnstructured, err := runtime.DefaultUnstructuredConverter.ToUnstructured(existing)
+	if err != nil {
+		return false, fmt.Errorf("converting existing object to unstructured: %w", err)
+	}
+
+	// Remove fields we don't want to compare
+	desiredUnstructured = removeNonComparedFields(desiredUnstructured)
+	existingUnstructured = removeNonComparedFields(existingUnstructured)
+
+	// Compare the filtered objects
+	return !reflect.DeepEqual(desiredUnstructured, existingUnstructured), nil
+}
+
+// removeNonComparedFields removes fields that should not be part of the comparison
+func removeNonComparedFields(obj map[string]interface{}) map[string]interface{} {
+	result := make(map[string]interface{})
+	for k, v := range obj {
+		// Skip status and resource version/generation fields
+		if k == "status" {
+			continue
+		}
+
+		if k == "metadata" {
+			if metadata, ok := v.(map[string]interface{}); ok {
+				filteredMetadata := make(map[string]interface{})
+				for mk, mv := range metadata {
+					// Keep only relevant metadata fields
+					if mk != "resourceVersion" && mk != "generation" &&
+						mk != "uid" && mk != "creationTimestamp" &&
+						mk != "managedFields" && mk != "selfLink" {
+						filteredMetadata[mk] = mv
+					}
+				}
+				result[k] = filteredMetadata
+			}
+			continue
+		}
+
+		result[k] = v
+	}
+	return result
+}
+
+// updateObject updates the spec of an existing object with the desired values
+func (r *ServiceReconciler) updateObject(existing, desired runtime.Object) error {
+	// Handle unstructured objects (CRDs and unknown types)
+	if unstructuredExisting, ok := existing.(*unstructured.Unstructured); ok {
+		return r.updateUnstructuredObject(unstructuredExisting, desired)
+	}
+
+	// Handle known types
+	switch desiredTyped := desired.(type) {
+	case *appsv1.Deployment:
+		existingTyped, ok := existing.(*appsv1.Deployment)
+		if !ok {
+			return fmt.Errorf("existing object is not a Deployment")
+		}
+		existingTyped.Spec = desiredTyped.Spec
+
+	case *corev1.Service:
+		existingTyped, ok := existing.(*corev1.Service)
+		if !ok {
+			return fmt.Errorf("existing object is not a Service")
+		}
+		// For Services, preserve the ClusterIP which is immutable
+		clusterIP := existingTyped.Spec.ClusterIP
+		existingTyped.Spec = desiredTyped.Spec
+		existingTyped.Spec.ClusterIP = clusterIP
+
+	case *networkingv1.Ingress:
+		existingTyped, ok := existing.(*networkingv1.Ingress)
+		if !ok {
+			return fmt.Errorf("existing object is not an Ingress")
+		}
+		existingTyped.Spec = desiredTyped.Spec
+
+	case *corev1.ConfigMap:
+		existingTyped, ok := existing.(*corev1.ConfigMap)
+		if !ok {
+			return fmt.Errorf("existing object is not a ConfigMap")
+		}
+		existingTyped.Data = desiredTyped.Data
+		existingTyped.BinaryData = desiredTyped.BinaryData
+
+	case *corev1.Secret:
+		existingTyped, ok := existing.(*corev1.Secret)
+		if !ok {
+			return fmt.Errorf("existing object is not a Secret")
+		}
+		existingTyped.Data = desiredTyped.Data
+		existingTyped.StringData = desiredTyped.StringData
+		existingTyped.Type = desiredTyped.Type
+
+	default:
+		// For unknown typed objects, fallback to generic approach
+		return r.genericUpdateObject(existing, desired)
+	}
+
+	return nil
+}
+
+// updateUnstructuredObject updates an unstructured object with the desired values
+func (r *ServiceReconciler) updateUnstructuredObject(existing *unstructured.Unstructured, desired runtime.Object) error {
+	// Convert desired to unstructured if it's not already
+	var desiredUnstructured *unstructured.Unstructured
+
+	if u, ok := desired.(*unstructured.Unstructured); ok {
+		desiredUnstructured = u
+	} else {
+		// Convert to unstructured
+		u := &unstructured.Unstructured{}
+		u.SetGroupVersionKind(desired.GetObjectKind().GroupVersionKind())
+
+		objData, err := runtime.DefaultUnstructuredConverter.ToUnstructured(desired)
+		if err != nil {
+			return fmt.Errorf("converting desired to unstructured: %w", err)
+		}
+		u.SetUnstructuredContent(objData)
+		desiredUnstructured = u
+	}
+
+	// Preserve existing metadata and immutable fields
+	existingObj := existing.UnstructuredContent()
+	desiredObj := desiredUnstructured.UnstructuredContent()
+
+	// Preserve metadata fields that should not be updated
+	existingMeta, hasExistingMeta := existingObj["metadata"].(map[string]interface{})
+	desiredMeta, hasDesiredMeta := desiredObj["metadata"].(map[string]interface{})
+
+	if hasExistingMeta && hasDesiredMeta {
+		// Fields to preserve from existing metadata
+		preserveFields := []string{
+			"resourceVersion",
+			"uid",
+			"generation",
+			"creationTimestamp",
+			"selfLink",
+			"managedFields",
+		}
+
+		for _, field := range preserveFields {
+			if val, exists := existingMeta[field]; exists {
+				desiredMeta[field] = val
+			}
+		}
+
+		// Update metadata in desired object
+		desiredObj["metadata"] = desiredMeta
+	}
+
+	// Preserve known immutable fields based on resource kind
+	kind := desiredUnstructured.GetKind()
+
+	if kind == "Service" {
+		// Preserve Service ClusterIP (immutable)
+		if existingSpec, hasExistingSpec := existingObj["spec"].(map[string]interface{}); hasExistingSpec {
+			if desiredSpec, hasDesiredSpec := desiredObj["spec"].(map[string]interface{}); hasDesiredSpec {
+				if clusterIP, exists := existingSpec["clusterIP"]; exists && clusterIP != nil {
+					desiredSpec["clusterIP"] = clusterIP
+				}
+				desiredObj["spec"] = desiredSpec
+			}
+		}
+	}
+
+	// Do not update status field
+	if existingStatus, exists := existingObj["status"]; exists {
+		desiredObj["status"] = existingStatus
+	}
+
+	// Update existing with updated content
+	existing.SetUnstructuredContent(desiredObj)
+
+	return nil
+}
+
+// genericUpdateObject provides a generic update mechanism for objects without type-specific logic
+func (r *ServiceReconciler) genericUpdateObject(existing, desired runtime.Object) error {
+	// Convert both objects to unstructured
+	desiredUnstructured, err := runtime.DefaultUnstructuredConverter.ToUnstructured(desired)
+	if err != nil {
+		return fmt.Errorf("converting desired object to unstructured: %w", err)
+	}
+
+	existingUnstructured, err := runtime.DefaultUnstructuredConverter.ToUnstructured(existing)
+	if err != nil {
+		return fmt.Errorf("converting existing object to unstructured: %w", err)
+	}
+
+	// Preserve fields that shouldn't be updated
+	preservedFields := preserveImmutableFields(existingUnstructured)
+
+	// Update all fields except metadata and status
+	for k, v := range desiredUnstructured {
+		if k != "metadata" && k != "status" && k != "apiVersion" && k != "kind" {
+			existingUnstructured[k] = v
+		}
+	}
+
+	// Restore preserved fields
+	for k, v := range preservedFields {
+		existingUnstructured[k] = v
+	}
+
+	// Convert back to the original type
+	return runtime.DefaultUnstructuredConverter.FromUnstructured(existingUnstructured, existing)
+}
+
+// preserveImmutableFields extracts fields that should be preserved during an update
+func preserveImmutableFields(obj map[string]interface{}) map[string]interface{} {
+	preserved := make(map[string]interface{})
+
+	// Preserve spec.clusterIP for Service objects
+	if spec, ok := obj["spec"].(map[string]interface{}); ok {
+		if clusterIP, ok := spec["clusterIP"]; ok {
+			if preserved["spec"] == nil {
+				preserved["spec"] = make(map[string]interface{})
+			}
+			preserved["spec"].(map[string]interface{})["clusterIP"] = clusterIP
+		}
+	}
+
+	// Add more immutable fields as needed
+
+	return preserved
 }
 
 // SetupWithManager sets up the controller with the Manager
