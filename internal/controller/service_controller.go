@@ -216,7 +216,7 @@ func (r *ServiceReconciler) reconcileDeployment(ctx context.Context, rb *resourc
 	if err == resourcebuilder.ErrDeploymentNotNeeded {
 		logger.Info("Deployment not needed, deleting if exists")
 		var existing appsv1.Deployment
-		err = r.Get(ctx, client.ObjectKey{Namespace: desired.Namespace, Name: desired.Name}, &existing)
+		err = r.Get(ctx, client.ObjectKey{Namespace: service.Namespace, Name: service.Name}, &existing)
 
 		if err != nil {
 			if errors.IsNotFound(err) {
