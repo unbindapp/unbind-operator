@@ -39,6 +39,7 @@ import (
 
 	unbindv1 "github.com/unbindapp/unbind-operator/api/v1"
 	"github.com/unbindapp/unbind-operator/internal/controller"
+	postgresv1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -51,6 +52,9 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(unbindv1.AddToScheme(scheme))
+
+	utilruntime.Must(postgresv1.AddToScheme(scheme))
+
 	// +kubebuilder:scaffold:scheme
 }
 

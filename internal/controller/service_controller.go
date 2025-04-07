@@ -23,6 +23,7 @@ import (
 
 	v1 "github.com/unbindapp/unbind-operator/api/v1"
 	"github.com/unbindapp/unbind-operator/internal/resourcebuilder"
+	postgresv1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -102,14 +103,7 @@ func (r *ServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	// Determine if this is a template
 	if service.Spec.Type == "template" {
-		// ! COnvert this to a reconcilation function in addition to the others
-		runtimeObjects, err := rb.BuildTemplate(ctx, logger)
-		if err != nil {
-			logger.Error(err, "Failed to build template")
-			return ctrl.Result{}, err
-		}
-
-		if err := r.reconcileRuntimeObjects(ctx, runtimeObjects, service); err != nil {
+		if err := r.reconcileTemplate(ctx, rb, service); err != nil {
 			logger.Error(err, "Failed to reconcile runtime objects")
 			return ctrl.Result{}, err
 		}
@@ -391,125 +385,187 @@ func (r *ServiceReconciler) reconcileIngress(ctx context.Context, rb *resourcebu
 	return nil
 }
 
-// reconcileRuntimeObjects ensures all provided runtime.Objects exist and are configured correctly
+// reconcileTemplate handles Service resources of type "template"
+func (r *ServiceReconciler) reconcileTemplate(ctx context.Context, rb *resourcebuilder.ResourceBuilder, service v1.Service) error {
+	logger := log.FromContext(ctx)
+	logger.Info("Reconciling template", "service", fmt.Sprintf("%s/%s", service.Namespace, service.Name))
+
+	// Get template content from service spec
+	runtimeObjects, err := rb.BuildTemplate(ctx, logger)
+	if err != nil {
+		return fmt.Errorf("failed to build template: %w", err)
+	}
+
+	// Reconcile the rendered objects
+	if err := r.reconcileRuntimeObjects(ctx, runtimeObjects, service); err != nil {
+		logger.Error(err, "Failed to reconcile runtime objects")
+		return err
+	}
+
+	return nil
+}
+
+// Handle CRD-specific reconciliation
+func (r *ServiceReconciler) reconcilePostgresql(ctx context.Context, postgres *postgresv1.Postgresql, owner *v1.Service) error {
+	logger := log.FromContext(ctx)
+	logger.Info("Reconciling Postgresql", "name", postgres.Name, "namespace", postgres.Namespace)
+
+	// Set controller reference
+	if err := controllerutil.SetControllerReference(owner, postgres, r.Scheme); err != nil {
+		return fmt.Errorf("setting controller reference: %w", err)
+	}
+
+	// Check if the resource exists
+	var existing postgresv1.Postgresql
+	err := r.Get(ctx, client.ObjectKey{Namespace: postgres.Namespace, Name: postgres.Name}, &existing)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// Create the resource
+			logger.Info("Creating Postgresql", "name", postgres.Name)
+			return r.Create(ctx, postgres)
+		}
+		return err
+	}
+
+	// Resource exists, check if it needs to be updated
+	if !reflect.DeepEqual(existing.Spec, postgres.Spec) {
+		// Update the resource
+		existing.Spec = postgres.Spec
+		logger.Info("Updating Postgresql", "name", postgres.Name)
+		return r.Update(ctx, &existing)
+	}
+
+	return nil
+}
+
+// Update reconcileRuntimeObjects to handle typed CRDs
 func (r *ServiceReconciler) reconcileRuntimeObjects(ctx context.Context, objects []runtime.Object, service v1.Service) error {
 	logger := log.FromContext(ctx)
 
 	for _, obj := range objects {
-		// Get metadata from the object
-		metaObj, err := meta.Accessor(obj)
-		if err != nil {
-			logger.Error(err, "Failed to get object metadata")
-			return fmt.Errorf("accessing object metadata: %w", err)
-		}
+		// Handle typed CRDs specifically
+		switch typedObj := obj.(type) {
+		case *postgresv1.Postgresql:
+			if err := r.reconcilePostgresql(ctx, typedObj, &service); err != nil {
+				return fmt.Errorf("reconciling Postgresql: %w", err)
+			}
 
-		// Get the object type for better logging
-		gvk := obj.GetObjectKind().GroupVersionKind()
-		kind := gvk.Kind
-		if kind == "" {
-			kind = fmt.Sprintf("%T", obj)
-		}
+		default:
+			// Get metadata from the object
+			metaObj, err := meta.Accessor(obj)
+			if err != nil {
+				logger.Error(err, "Failed to get object metadata")
+				return fmt.Errorf("accessing object metadata: %w", err)
+			}
 
-		// Check if the object exists
-		existing, err := r.getExistingObject(ctx, obj)
-		if err != nil {
-			if !errors.IsNotFound(err) {
-				logger.Error(err, "Failed to get existing object",
+			// Get the object type for better logging
+			gvk := obj.GetObjectKind().GroupVersionKind()
+			kind := gvk.Kind
+			if kind == "" {
+				kind = fmt.Sprintf("%T", obj)
+			}
+
+			// Check if the object exists
+			existing, err := r.getExistingObject(ctx, obj)
+			if err != nil {
+				if !errors.IsNotFound(err) {
+					logger.Error(err, "Failed to get existing object",
+						"kind", kind,
+						"name", metaObj.GetName(),
+						"namespace", metaObj.GetNamespace())
+					return fmt.Errorf("getting existing object: %w", err)
+				}
+
+				// Object doesn't exist, create it
+				logger.Info("Creating object",
+					"kind", kind,
+					"name", metaObj.GetName(),
+					"namespace", metaObj.GetNamespace(),
+					"apiVersion", gvk.GroupVersion().String())
+
+				// Set controller reference
+				if err := controllerutil.SetControllerReference(&service, metaObj, r.Scheme); err != nil {
+					return fmt.Errorf("setting controller reference: %w", err)
+				}
+
+				// Convert to unstructured for better CRD support if needed
+				var createObj client.Object
+
+				if clientObj, ok := obj.(client.Object); ok {
+					createObj = clientObj
+				} else {
+					// Convert to unstructured
+					u := &unstructured.Unstructured{}
+					u.SetGroupVersionKind(gvk)
+
+					objData, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+					if err != nil {
+						return fmt.Errorf("converting object to unstructured: %w", err)
+					}
+					u.SetUnstructuredContent(objData)
+					createObj = u
+				}
+
+				if err := r.Create(ctx, createObj); err != nil {
+					return fmt.Errorf("creating %s %s/%s: %w",
+						kind,
+						metaObj.GetNamespace(),
+						metaObj.GetName(),
+						err)
+				}
+				continue
+			}
+
+			// Object exists, check if update is needed
+			needsUpdate, err := r.objectNeedsUpdate(obj, existing)
+			if err != nil {
+				return fmt.Errorf("checking if update needed: %w", err)
+			}
+
+			if needsUpdate {
+				logger.Info("Updating object",
+					"kind", kind,
+					"name", metaObj.GetName(),
+					"namespace", metaObj.GetNamespace(),
+					"apiVersion", gvk.GroupVersion().String())
+
+				// Update the existing object with the desired spec
+				if err := r.updateObject(existing, obj); err != nil {
+					return fmt.Errorf("updating object spec: %w", err)
+				}
+
+				// Make sure controller reference is set
+				existingMeta, err := meta.Accessor(existing)
+				if err != nil {
+					return fmt.Errorf("getting metadata from existing object: %w", err)
+				}
+
+				if err := controllerutil.SetControllerReference(&service, existingMeta, r.Scheme); err != nil {
+					return fmt.Errorf("setting controller reference: %w", err)
+				}
+
+				// Convert to client.Object
+				var updateObj client.Object
+
+				if clientObj, ok := existing.(client.Object); ok {
+					updateObj = clientObj
+				} else {
+					return fmt.Errorf("existing object is not a client.Object: %T", existing)
+				}
+
+				if err := r.Update(ctx, updateObj); err != nil {
+					return fmt.Errorf("updating %s %s/%s: %w",
+						kind,
+						existingMeta.GetNamespace(),
+						existingMeta.GetName(),
+						err)
+				}
+			} else {
+				logger.Info("Object already up to date",
 					"kind", kind,
 					"name", metaObj.GetName(),
 					"namespace", metaObj.GetNamespace())
-				return fmt.Errorf("getting existing object: %w", err)
 			}
-
-			// Object doesn't exist, create it
-			logger.Info("Creating object",
-				"kind", kind,
-				"name", metaObj.GetName(),
-				"namespace", metaObj.GetNamespace(),
-				"apiVersion", gvk.GroupVersion().String())
-
-			// Set controller reference
-			if err := controllerutil.SetControllerReference(&service, metaObj, r.Scheme); err != nil {
-				return fmt.Errorf("setting controller reference: %w", err)
-			}
-
-			// Convert to unstructured for better CRD support if needed
-			var createObj client.Object
-
-			if clientObj, ok := obj.(client.Object); ok {
-				createObj = clientObj
-			} else {
-				// Convert to unstructured
-				u := &unstructured.Unstructured{}
-				u.SetGroupVersionKind(gvk)
-
-				objData, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
-				if err != nil {
-					return fmt.Errorf("converting object to unstructured: %w", err)
-				}
-				u.SetUnstructuredContent(objData)
-				createObj = u
-			}
-
-			if err := r.Create(ctx, createObj); err != nil {
-				return fmt.Errorf("creating %s %s/%s: %w",
-					kind,
-					metaObj.GetNamespace(),
-					metaObj.GetName(),
-					err)
-			}
-			continue
-		}
-
-		// Object exists, check if update is needed
-		needsUpdate, err := r.objectNeedsUpdate(obj, existing)
-		if err != nil {
-			return fmt.Errorf("checking if update needed: %w", err)
-		}
-
-		if needsUpdate {
-			logger.Info("Updating object",
-				"kind", kind,
-				"name", metaObj.GetName(),
-				"namespace", metaObj.GetNamespace(),
-				"apiVersion", gvk.GroupVersion().String())
-
-			// Update the existing object with the desired spec
-			if err := r.updateObject(existing, obj); err != nil {
-				return fmt.Errorf("updating object spec: %w", err)
-			}
-
-			// Make sure controller reference is set
-			existingMeta, err := meta.Accessor(existing)
-			if err != nil {
-				return fmt.Errorf("getting metadata from existing object: %w", err)
-			}
-
-			if err := controllerutil.SetControllerReference(&service, existingMeta, r.Scheme); err != nil {
-				return fmt.Errorf("setting controller reference: %w", err)
-			}
-
-			// Convert to client.Object
-			var updateObj client.Object
-
-			if clientObj, ok := existing.(client.Object); ok {
-				updateObj = clientObj
-			} else {
-				return fmt.Errorf("existing object is not a client.Object: %T", existing)
-			}
-
-			if err := r.Update(ctx, updateObj); err != nil {
-				return fmt.Errorf("updating %s %s/%s: %w",
-					kind,
-					existingMeta.GetNamespace(),
-					existingMeta.GetName(),
-					err)
-			}
-		} else {
-			logger.Info("Object already up to date",
-				"kind", kind,
-				"name", metaObj.GetName(),
-				"namespace", metaObj.GetNamespace())
 		}
 	}
 
@@ -870,8 +926,6 @@ func preserveImmutableFields(obj map[string]interface{}) map[string]interface{} 
 			preserved["spec"].(map[string]interface{})["clusterIP"] = clusterIP
 		}
 	}
-
-	// Add more immutable fields as needed
 
 	return preserved
 }
