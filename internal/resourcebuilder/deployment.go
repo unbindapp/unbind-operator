@@ -1,13 +1,21 @@
 package resourcebuilder
 
 import (
+	"fmt"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+var ErrDeploymentNotNeeded = fmt.Errorf("deployment not needed, probably no image configured")
+
 // Build kubernetes Deployment objects
 func (rb *ResourceBuilder) BuildDeployment() (*appsv1.Deployment, error) {
+	if rb.service.Spec.Config.Image == "" {
+		return nil, ErrDeploymentNotNeeded
+	}
+
 	replicas := int32(2)
 	if rb.service.Spec.Config.Replicas != nil {
 		replicas = *rb.service.Spec.Config.Replicas

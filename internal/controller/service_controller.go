@@ -210,7 +210,27 @@ func (r *ServiceReconciler) reconcileDeployment(ctx context.Context, rb *resourc
 
 	// Build desired deployment
 	desired, err := rb.BuildDeployment()
-	if err != nil {
+
+	// If the deployment is not needed, delete any existing
+	if err == resourcebuilder.ErrDeploymentNotNeeded {
+		logger.Info("Deployment not needed, deleting if exists")
+		var existing appsv1.Deployment
+		err = r.Get(ctx, client.ObjectKey{Namespace: desired.Namespace, Name: desired.Name}, &existing)
+
+		if err != nil {
+			if errors.IsNotFound(err) {
+				logger.Info("Deployment already deleted or doesn't exist")
+				return nil
+			}
+			return fmt.Errorf("checking if deployment exists: %w", err)
+		}
+
+		logger.Info("Deleting deployment", "name", existing.Name)
+		if err := r.Delete(ctx, &existing); err != nil {
+			return fmt.Errorf("deleting Deployment: %w", err)
+		}
+		return nil
+	} else if err != nil {
 		logger.Error(err, "Failed to build deployment")
 		return fmt.Errorf("building deployment: %w", err)
 	}
