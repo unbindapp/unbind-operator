@@ -102,9 +102,9 @@ func (r *ServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// Build resource builder
 	rb := resourcebuilder.NewResourceBuilder(&service, r.Scheme)
 
-	// Determine if this is a template
-	if service.Spec.Type == "template" {
-		if err := r.reconcileTemplate(ctx, rb, service); err != nil {
+	// Determine if this is a database
+	if service.Spec.Type == "database" {
+		if err := r.reconcileDatabase(ctx, rb, service); err != nil {
 			logger.Error(err, "Failed to reconcile runtime objects")
 			return ctrl.Result{}, err
 		}
@@ -406,15 +406,15 @@ func (r *ServiceReconciler) reconcileIngress(ctx context.Context, rb *resourcebu
 	return nil
 }
 
-// reconcileTemplate handles Service resources of type "template"
-func (r *ServiceReconciler) reconcileTemplate(ctx context.Context, rb *resourcebuilder.ResourceBuilder, service v1.Service) error {
+// reconcileDatabase handles Service resources of type "database"
+func (r *ServiceReconciler) reconcileDatabase(ctx context.Context, rb *resourcebuilder.ResourceBuilder, service v1.Service) error {
 	logger := log.FromContext(ctx)
-	logger.Info("Reconciling template", "service", fmt.Sprintf("%s/%s", service.Namespace, service.Name))
+	logger.Info("Reconciling database", "service", fmt.Sprintf("%s/%s", service.Namespace, service.Name))
 
-	// Get template content from service spec
-	runtimeObjects, err := rb.BuildTemplate(ctx, logger)
+	// Get database def content from service spec
+	runtimeObjects, err := rb.BuildDatabaseObjects(ctx, logger)
 	if err != nil {
-		return fmt.Errorf("failed to build template: %w", err)
+		return fmt.Errorf("failed to build database objects: %w", err)
 	}
 
 	// Reconcile the rendered objects

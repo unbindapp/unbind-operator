@@ -221,6 +221,8 @@ github.com/tidwall/rtree v0.0.0-20180113144539-6cd427091e0e/go.mod h1:/h+UnNGt0I
 github.com/tidwall/tinyqueue v0.0.0-20180302190814-1e39f5511563/go.mod h1:mLqSmt7Dv/CNneF2wfcChfN1rvapyQr01LGKnKex0DQ=
 github.com/unbindapp/unbind-api v0.0.0-20250407180409-9cf3e5ee551c h1:lnzSJPj5nlyHn3u89qFp2zt1+d5nRDxs+iy8I3Kt8mo=
 github.com/unbindapp/unbind-api v0.0.0-20250407180409-9cf3e5ee551c/go.mod h1:oVckTZJSAeO3tcDFGnr9Pd2viIbAC3D/W/XLIIf4O6Q=
+github.com/unbindapp/unbind-api v0.0.0-20250407230405-207ca5e997bf h1:ZXV7ZeyEjh0KwytZd48j2IEEXncY9eImtyC7vTPnFl0=
+github.com/unbindapp/unbind-api v0.0.0-20250407230405-207ca5e997bf/go.mod h1:hNelOrkqBR25wCK4EkEoAnLZHA7UL/34ForV0RvJyuc=
 github.com/valyala/bytebufferpool v1.0.0/go.mod h1:6bBcMArwyJ5K/AmCkWv1jt77kVWyCJ6HpOuEn7z0Csc=
 github.com/valyala/fasthttp v1.34.0/go.mod h1:epZA5N+7pY6ZaEKRmstzOuYJx9HI8DI1oaCGZpdH4h0=
 github.com/valyala/tcplisten v1.0.0/go.mod h1:T0xQ8SeCZGxckz9qRXTfG43PvQ/mcWh7FwZEA7Ioqkc=

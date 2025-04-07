@@ -64,6 +64,23 @@ spec:
               config:
                 description: Configuration for the service
                 properties:
+                  database:
+                    description: Databases are custom resources to create
+                    properties:
+                      config:
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
+                      databaseSpecVersion:
+                        description: DatabaseSpecVersion is a reference to the version
+                          of the database spec
+                        type: string
+                      name:
+                        description: Name of the database
+                        type: string
+                    required:
+                    - databaseSpecVersion
+                    - name
+                    type: object
                   gitBranch:
                     description: GitBranch to build from
                     type: string
@@ -116,34 +133,9 @@ spec:
                   runCommand:
                     description: RunCommand is a custom run command
                     type: string
-                  template:
-                    description: Templates are the templates to use for this service
-                    properties:
-                      category:
-                        description: Enum for category name
-                        type: string
-                      config:
-                        type: object
-                        x-kubernetes-preserve-unknown-fields: true
-                      name:
-                        description: Name of the template
-                        type: string
-                      version:
-                        description: Version of individual template
-                        type: string
-                      versionRef:
-                        description: VersionRef is a reference to the version of the
-                          template
-                        type: string
-                    required:
-                    - category
-                    - name
-                    - version
-                    - versionRef
-                    type: object
                 required:
+                - database
                 - image
-                - template
                 type: object
               description:
                 description: Description of the service

@@ -17,7 +17,6 @@ limitations under the License.
 package v1
 
 import (
-	templates "github.com/unbindapp/unbind-api/pkg/templates"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -97,8 +96,8 @@ type ServiceConfigSpec struct {
 	// Image is a custom Docker image if not building from git
 	Image string `json:"image"`
 
-	// Templates are the templates to use for this service
-	Template TemplateSpec `json:"template"`
+	// Databases are custom resources to create
+	Database DatabaseSpec `json:"database"`
 }
 
 // ServiceStatus defines the observed state of Service
@@ -129,15 +128,12 @@ type PortSpec struct {
 	Protocol *corev1.Protocol `json:"protocol,omitempty" required:"false"`
 }
 
-type TemplateSpec struct {
-	// Name of the template
+type DatabaseSpec struct {
+	// Name of the database
 	Name string `json:"name"`
-	// Version of individual template
-	Version string `json:"version"`
-	// VersionRef is a reference to the version of the template
-	VersionRef string                         `json:"versionRef"`
-	Category   templates.TemplateCategoryName `json:"category"`
-	Config     runtime.RawExtension           `json:"config,omitempty"`
+	// DatabaseSpecVersion is a reference to the version of the database spec
+	DatabaseSpecVersion string               `json:"databaseSpecVersion"`
+	Config              runtime.RawExtension `json:"config,omitempty"`
 }
 
 // +kubebuilder:object:root=true
