@@ -46,6 +46,9 @@ func (rb *ResourceBuilder) BuildTemplate(ctx context.Context, logger logr.Logger
 		templateConfig["labels"].(map[string]string)[k] = v
 	}
 
+	// Debug labels
+	logger.V(1).Info("Template labels", "labels", templateConfig["labels"])
+
 	// Render the template
 	renderedYaml, err := templateRenderer.Render(fetchedTemplate, &templates.RenderContext{
 		Name:          rb.service.Name,
