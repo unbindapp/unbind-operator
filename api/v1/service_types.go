@@ -129,8 +129,8 @@ type PortSpec struct {
 }
 
 type DatabaseSpec struct {
-	// Name of the database
-	Name string `json:"name"`
+	// Type of the database
+	Type string `json:"type"`
 	// DatabaseSpecVersion is a reference to the version of the database spec
 	DatabaseSpecVersion string               `json:"databaseSpecVersion"`
 	Config              runtime.RawExtension `json:"config,omitempty"`

@@ -74,12 +74,12 @@ spec:
                         description: DatabaseSpecVersion is a reference to the version
                           of the database spec
                         type: string
-                      name:
-                        description: Name of the database
+                      type:
+                        description: Type of the database
                         type: string
                     required:
                     - databaseSpecVersion
-                    - name
+                    - type
                     type: object
                   gitBranch:
                     description: GitBranch to build from

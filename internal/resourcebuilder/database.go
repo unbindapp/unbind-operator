@@ -15,7 +15,7 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 	dbRenderer := databases.NewDatabaseRenderer()
 	fetchedDb, err := dbProvider.FetchDatabaseDefinition(ctx,
 		rb.service.Spec.Config.Database.DatabaseSpecVersion,
-		rb.service.Spec.Config.Database.Name,
+		rb.service.Spec.Config.Database.Type,
 	)
 
 	if err != nil || fetchedDb == nil {
