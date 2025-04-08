@@ -125,9 +125,11 @@ func (r *ServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	// Create or update the Ingress if needed
-	if err := r.reconcileIngress(ctx, rb, service); err != nil {
-		logger.Error(err, "Failed to reconcile Ingress")
-		return ctrl.Result{}, err
+	if service.Spec.Type != "database" {
+		if err := r.reconcileIngress(ctx, rb, service); err != nil {
+			logger.Error(err, "Failed to reconcile Ingress")
+			return ctrl.Result{}, err
+		}
 	}
 
 	// Update status
