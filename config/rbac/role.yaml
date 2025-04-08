@@ -22,8 +22,11 @@ rules:
   resources:
   - secrets
   verbs:
+  - delete
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - acid.zalan.do

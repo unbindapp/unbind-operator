@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"time"
 
 	v1 "github.com/unbindapp/unbind-operator/api/v1"
 	"github.com/unbindapp/unbind-operator/internal/resourcebuilder"
@@ -57,7 +58,7 @@ type ServiceReconciler struct {
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=acid.zalan.do,resources=postgresqls,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is the main reconciliation loop for the Service resource
@@ -423,7 +424,150 @@ func (r *ServiceReconciler) reconcileDatabase(ctx context.Context, rb *resourceb
 		return err
 	}
 
+	// Check if we need to copy Zalando PostgreSQL credentials to a different Secret
+	if service.Spec.KubernetesSecret != "" {
+		if err := r.copyPostgresCredentials(ctx, &service); err != nil {
+			logger.Error(err, "Failed to copy PostgreSQL credentials")
+			return err
+		}
+	}
+
 	return nil
+}
+
+// copyPostgresCredentials copies credentials from Zalando PostgreSQL secret to the target secret
+func (r *ServiceReconciler) copyPostgresCredentials(ctx context.Context, service *v1.Service) error {
+	logger := log.FromContext(ctx)
+
+	// The Zalando operator creates secrets with a specific naming pattern
+	zalandoSecretName := fmt.Sprintf("postgres.%s.credentials.postgresql.acid.zalan.do", service.Name)
+	zalandoSecret := &corev1.Secret{}
+
+	// Retry logic to wait for the Zalando secret to be created
+	retries := 0
+	var err error
+	for retries < 3 {
+		err = r.Get(ctx, types.NamespacedName{
+			Namespace: service.Namespace,
+			Name:      zalandoSecretName,
+		}, zalandoSecret)
+
+		if err == nil {
+			break // Found the secret, exit the retry loop
+		}
+
+		if errors.IsNotFound(err) {
+			retries++
+			logger.Info("Zalando PostgreSQL secret not found yet, retrying",
+				"secret", zalandoSecretName,
+				"attempt", retries,
+				"target", service.Spec.KubernetesSecret)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		// Some other error occurred
+		return fmt.Errorf("failed to get Zalando PostgreSQL secret: %w", err)
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to get Zalando PostgreSQL secret after retries: %w", err)
+	}
+
+	// Check if the target secret already exists
+	targetSecret := &corev1.Secret{}
+	err = r.Get(ctx, types.NamespacedName{
+		Namespace: service.Namespace,
+		Name:      service.Spec.KubernetesSecret,
+	}, targetSecret)
+
+	if err != nil {
+		if !errors.IsNotFound(err) {
+			return fmt.Errorf("failed to check if target secret exists: %w", err)
+		}
+
+		// Secret doesn't exist, create a new one
+		targetSecret = &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      service.Spec.KubernetesSecret,
+				Namespace: service.Namespace,
+			},
+			Type: corev1.SecretTypeOpaque,
+			Data: map[string][]byte{},
+		}
+
+		// Set owner reference so it's cleaned up with the service
+		if err := controllerutil.SetControllerReference(service, targetSecret, r.Scheme); err != nil {
+			return fmt.Errorf("setting controller reference on target secret: %w", err)
+		}
+
+		logger.Info("Creating new secret with PostgreSQL credentials",
+			"source", zalandoSecretName,
+			"target", service.Spec.KubernetesSecret)
+
+		// Initialize map if needed
+		if targetSecret.Data == nil {
+			targetSecret.Data = map[string][]byte{}
+		}
+
+		// Copy credentials to the new secret
+		updateSecretData(targetSecret, zalandoSecret, service)
+
+		if err := r.Create(ctx, targetSecret); err != nil {
+			return fmt.Errorf("failed to create target secret: %w", err)
+		}
+	} else {
+		// Secret exists, check if it's empty or needs credentials copied
+		isEmpty := len(targetSecret.Data) == 0
+		hasCredentials := false
+
+		// Check if the secret already has the credentials
+		if _, ok := targetSecret.Data["DEFAULT_USERNAME"]; ok {
+			if _, ok := targetSecret.Data["DEFAULT_PASSWORD"]; ok {
+				hasCredentials = true
+			}
+		}
+
+		if isEmpty || !hasCredentials {
+			logger.Info("Target secret exists but needs credentials copied",
+				"target", service.Spec.KubernetesSecret,
+				"isEmpty", isEmpty)
+
+			// Initialize map if needed
+			if targetSecret.Data == nil {
+				targetSecret.Data = map[string][]byte{}
+			}
+
+			// Copy credentials to the existing secret
+			updateSecretData(targetSecret, zalandoSecret, service)
+
+			if err := r.Update(ctx, targetSecret); err != nil {
+				return fmt.Errorf("failed to update target secret: %w", err)
+			}
+		} else {
+			logger.Info("Target secret already has credentials, skipping copy",
+				"target", service.Spec.KubernetesSecret)
+		}
+	}
+
+	return nil
+}
+
+// updateSecretData copies the required data from Zalando secret to target secret
+func updateSecretData(targetSecret *corev1.Secret, zalandoSecret *corev1.Secret, service *v1.Service) {
+	// Copy the credentials (username and password)
+	// Zalando PostgreSQL operator typically uses these keys
+	if username, ok := zalandoSecret.Data["username"]; ok {
+		targetSecret.Data["DEFAULT_USERNAME"] = username
+	}
+	if password, ok := zalandoSecret.Data["password"]; ok {
+		targetSecret.Data["DEFAULT_PASSWORD"] = password
+	}
+
+	// Add database name and host information
+	targetSecret.Data["DEFAULT_DATABASE"] = []byte("postgres")
+	targetSecret.Data["HOST"] = []byte(fmt.Sprintf("%s.%s.svc.cluster.local", service.Name, service.Namespace))
+	targetSecret.Data["PORT"] = []byte("5432") // Default PostgreSQL port
 }
 
 // Handle CRD-specific reconciliation
