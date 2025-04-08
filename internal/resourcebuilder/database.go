@@ -24,17 +24,17 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 	}
 
 	// Convert the database config to a map
-	templateConfig, err := rawExtensionToMap(rb.service.Spec.Config.Database.Config)
+	dbConfig, err := rawExtensionToMap(rb.service.Spec.Config.Database.Config)
 	if err != nil {
 		logger.Error(err, "Failed to convert database config to map")
 	}
 
 	// Add labels to the database config
-	_, ok := templateConfig["labels"]
+	_, ok := dbConfig["labels"]
 	if !ok {
-		templateConfig["labels"] = make(map[string]string)
+		dbConfig["labels"] = make(map[string]string)
 	}
-	_, ok = templateConfig["labels"].(map[string]string)
+	_, ok = dbConfig["labels"].(map[string]string)
 	if !ok {
 		logger.Error(err, "Failed to convert labels to map")
 		return nil, err
@@ -42,18 +42,18 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 
 	// Append the maps
 	for k, v := range rb.getCommonLabels() {
-		templateConfig["labels"].(map[string]string)[k] = v
+		dbConfig["labels"].(map[string]string)[k] = v
 	}
 
 	// Get common config, if it exists as a key
-	_, ok = templateConfig["common"]
+	_, ok = dbConfig["common"]
 	if !ok {
-		templateConfig["common"] = make(map[string]interface{})
+		dbConfig["common"] = make(map[string]interface{})
 	}
 
-	templateConfig["common"].(map[string]interface{})["replicas"] = rb.service.Spec.Config.Replicas
+	dbConfig["common"].(map[string]interface{})["replicas"] = rb.service.Spec.Config.Replicas
 
-	// Render the template
+	// Render the db
 	renderedYaml, err := dbRenderer.Render(fetchedDb, &databases.RenderContext{
 		Name:          rb.service.Name,
 		Namespace:     rb.service.Namespace,
@@ -62,11 +62,11 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 		EnvironmentID: rb.service.Spec.EnvironmentRef,
 		ServiceID:     rb.service.Spec.ServiceRef,
 		Definition:    *fetchedDb,
-		Parameters:    templateConfig,
+		Parameters:    dbConfig,
 	})
 
 	if err != nil {
-		logger.Error(err, "Failed to render database template")
+		logger.Error(err, "Failed to render database db")
 		return nil, err
 	}
 
