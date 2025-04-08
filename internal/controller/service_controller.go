@@ -109,6 +109,11 @@ func (r *ServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			logger.Error(err, "Failed to reconcile runtime objects")
 			return ctrl.Result{}, err
 		}
+
+		if err := r.reconcileDatabaseNodePort(ctx, rb, service); err != nil {
+			logger.Error(err, "Failed to reconcile database NodePort service")
+			return ctrl.Result{}, err
+		}
 	}
 
 	// * Generic path
@@ -434,6 +439,92 @@ func (r *ServiceReconciler) reconcileDatabase(ctx context.Context, rb *resourceb
 		}
 	}
 
+	return nil
+}
+
+// reconcileDatabaseNodePort ensures the NodePort Service exists and is configured correctly for public databases
+func (r *ServiceReconciler) reconcileDatabaseNodePort(ctx context.Context, rb *resourcebuilder.ResourceBuilder, service v1.Service) error {
+	logger := log.FromContext(ctx)
+
+	// Check if service is needed
+	desired, err := rb.BuildDatabaseNodeportService()
+
+	// If the service is not needed (no port configured), delete any existing service
+	if err == resourcebuilder.ErrServiceNotNeeded {
+		logger.Info("Service not needed, deleting if exists")
+		existingService := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("%s-nodeport", service.Name),
+				Namespace: service.Namespace,
+			},
+		}
+
+		err := r.Get(ctx, types.NamespacedName{Name: existingService.Name, Namespace: existingService.Namespace}, existingService)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				logger.Info("Service already deleted or doesn't exist")
+				return nil
+			}
+			return fmt.Errorf("checking if service exists: %w", err)
+		}
+
+		logger.Info("Deleting service", "name", existingService.Name)
+		if err := r.Delete(ctx, existingService); err != nil {
+			return fmt.Errorf("deleting service: %w", err)
+		}
+		return nil
+	} else if err != nil {
+		logger.Error(err, "Failed to build service")
+		return fmt.Errorf("building service: %w", err)
+	}
+
+	// Service is needed, get existing or create new
+	var existing corev1.Service
+	err = r.Get(ctx, client.ObjectKey{Namespace: desired.Namespace, Name: desired.Name}, &existing)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			logger.Info("Creating nodeport service", "name", desired.Name)
+			if err := controllerutil.SetControllerReference(&service, desired, r.Scheme); err != nil {
+				return fmt.Errorf("setting controller reference: %w", err)
+			}
+			return r.Create(ctx, desired)
+		}
+		return fmt.Errorf("getting service: %w", err)
+	}
+
+	// Copy ClusterIP which is immutable
+	desired.Spec.ClusterIP = existing.Spec.ClusterIP
+
+	// Compare specs to determine if an update is needed
+	// Only compare relevant fields to avoid unnecessary updates
+	needsUpdate := false
+
+	// Compare ports
+	if !reflect.DeepEqual(existing.Spec.Ports, desired.Spec.Ports) {
+		needsUpdate = true
+	}
+
+	// Compare selector
+	if !reflect.DeepEqual(existing.Spec.Selector, desired.Spec.Selector) {
+		needsUpdate = true
+	}
+
+	// Compare type
+	if existing.Spec.Type != desired.Spec.Type {
+		needsUpdate = true
+	}
+
+	// Only update if needed
+	if needsUpdate {
+		logger.Info("Updating service", "name", desired.Name)
+		existing.Spec = desired.Spec
+		if err := controllerutil.SetControllerReference(&service, &existing, r.Scheme); err != nil {
+			return fmt.Errorf("setting controller reference: %w", err)
+		}
+		return r.Update(ctx, &existing)
+	}
+
+	logger.Info("NodePort already up to date")
 	return nil
 }
 
