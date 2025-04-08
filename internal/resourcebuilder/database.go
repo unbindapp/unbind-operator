@@ -3,14 +3,10 @@ package resourcebuilder
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	"github.com/go-logr/logr"
 	"github.com/unbindapp/unbind-api/pkg/databases"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr.Logger) ([]runtime.Object, error) {
@@ -57,6 +53,12 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 
 	dbConfig["common"].(map[string]interface{})["replicas"] = rb.service.Spec.Config.Replicas
 
+	if rb.service.Spec.Config.Public {
+		if rb.service.Spec.Config.Database.Type == "postgres" {
+			dbConfig["enableMasterLoadBalancer"] = true
+		}
+	}
+
 	// Render the db
 	renderedYaml, err := dbRenderer.Render(fetchedDb, &databases.RenderContext{
 		Name:          rb.service.Name,
@@ -76,40 +78,6 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 
 	// Create as resource
 	return dbRenderer.RenderToObjects(renderedYaml)
-}
-
-func (rb *ResourceBuilder) BuildDatabaseNodeportService() (*corev1.Service, error) {
-	if len(rb.service.Spec.Config.Ports) < 1 || !rb.service.Spec.Config.Public {
-		return nil, ErrServiceNotNeeded
-	}
-	// Create service with required metadata
-	service := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-nodeport", rb.service.Name),
-			Namespace: rb.service.Namespace,
-			Labels:    rb.getCommonLabels(),
-		},
-		Spec: corev1.ServiceSpec{
-			Type: corev1.ServiceTypeNodePort,
-			Ports: []corev1.ServicePort{
-				{
-					Name:       "postgresql",
-					Port:       rb.service.Spec.Config.Ports[0].Port,
-					TargetPort: intstr.FromInt32(rb.service.Spec.Config.Ports[0].Port),
-					Protocol:   corev1.ProtocolTCP,
-				},
-			},
-			// ! TODO - this is just for postgres
-			Selector: map[string]string{
-				"application":  "spilo",
-				"cluster-name": rb.service.Name,
-				"spilo-role":   "master",
-				"team":         rb.service.Spec.TeamRef,
-			},
-		},
-	}
-
-	return service, nil
 }
 
 // Helper function to convert runtime.RawExtension to map[string]interface{}
