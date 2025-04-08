@@ -45,6 +45,14 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 		templateConfig["labels"].(map[string]string)[k] = v
 	}
 
+	// Get common config, if it exists as a key
+	_, ok = templateConfig["common"]
+	if !ok {
+		templateConfig["common"] = make(map[string]interface{})
+	}
+
+	templateConfig["common"].(map[string]interface{})["replicas"] = rb.service.Spec.Config.Replicas
+
 	// Render the template
 	renderedYaml, err := dbRenderer.Render(fetchedDb, &databases.RenderContext{
 		Name:          rb.service.Name,
