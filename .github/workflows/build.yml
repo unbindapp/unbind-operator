@@ -107,3 +107,11 @@ jobs:
           docker manifest annotate --arch arm64 --os linux unbindapp/unbind-operator:${{ needs.setup_env.outputs.branch_name }}-${{ env.GITHUB_RUN_ID }} unbindapp/unbind-operator:${{ needs.setup_env.outputs.branch_name }}-${{ env.GITHUB_RUN_ID }}-arm64
 
           docker manifest push unbindapp/unbind-operator:${{ needs.setup_env.outputs.branch_name }}-${{ env.GITHUB_RUN_ID }}
+
+          # Also tag as latest
+          docker manifest create unbindapp/unbind-operator:latest \
+            --amend unbindapp/unbind-operator:${{ needs.setup_env.outputs.branch_name }}-${{ env.GITHUB_RUN_ID }}-arm64
+            
+          docker manifest annotate --arch arm64 --os linux unbindapp/unbind-operator:latest unbindapp/unbind-operator:${{ needs.setup_env.outputs.branch_name }}-${{ env.GITHUB_RUN_ID }}-arm64
+
+          docker manifest push unbindapp/unbind-operator:latest
