@@ -21,7 +21,7 @@ func (rb *ResourceBuilder) BuildDeployment() (*appsv1.Deployment, error) {
 		replicas = *rb.service.Spec.Config.Replicas
 	}
 
-	var ports []corev1.ContainerPort
+	ports := []corev1.ContainerPort{}
 	for _, port := range rb.service.Spec.Config.Ports {
 		ports = append(ports, corev1.ContainerPort{
 			ContainerPort: port.Port,

@@ -50,6 +50,10 @@ type ServiceReconciler struct {
 	Scheme *runtime.Scheme
 }
 
+func (r *ServiceReconciler) newResourceBuilder(service *v1.Service) resourcebuilder.ResourceBuilderInterface {
+	return resourcebuilder.NewResourceBuilder(service, r.Scheme)
+}
+
 // +kubebuilder:rbac:groups=unbind.unbind.app,resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=unbind.unbind.app,resources=services/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=unbind.unbind.app,resources=services/finalizers,verbs=update
@@ -101,7 +105,7 @@ func (r *ServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	// Build resource builder
-	rb := resourcebuilder.NewResourceBuilder(&service, r.Scheme)
+	rb := r.newResourceBuilder(&service)
 
 	// Determine if this is a database
 	if service.Spec.Type == "database" {
@@ -209,7 +213,7 @@ func (r *ServiceReconciler) finalizeService(ctx context.Context, service *v1.Ser
 }
 
 // reconcileDeployment ensures the Deployment exists and is configured correctly
-func (r *ServiceReconciler) reconcileDeployment(ctx context.Context, rb *resourcebuilder.ResourceBuilder, service v1.Service) error {
+func (r *ServiceReconciler) reconcileDeployment(ctx context.Context, rb resourcebuilder.ResourceBuilderInterface, service v1.Service) error {
 	logger := log.FromContext(ctx)
 
 	// Build desired deployment
@@ -259,7 +263,7 @@ func (r *ServiceReconciler) reconcileDeployment(ctx context.Context, rb *resourc
 
 // reconcileService ensures the Service exists and is configured correctly
 // or is deleted if not needed
-func (r *ServiceReconciler) reconcileService(ctx context.Context, rb *resourcebuilder.ResourceBuilder, service v1.Service) error {
+func (r *ServiceReconciler) reconcileService(ctx context.Context, rb resourcebuilder.ResourceBuilderInterface, service v1.Service) error {
 	logger := log.FromContext(ctx)
 
 	// Check if service is needed
@@ -346,7 +350,7 @@ func (r *ServiceReconciler) reconcileService(ctx context.Context, rb *resourcebu
 
 // reconcileIngress ensures the Ingress exists and is configured correctly
 // or is deleted if not needed
-func (r *ServiceReconciler) reconcileIngress(ctx context.Context, rb *resourcebuilder.ResourceBuilder, service v1.Service) error {
+func (r *ServiceReconciler) reconcileIngress(ctx context.Context, rb resourcebuilder.ResourceBuilderInterface, service v1.Service) error {
 	logger := log.FromContext(ctx)
 
 	// Check if ingress is needed
@@ -410,7 +414,7 @@ func (r *ServiceReconciler) reconcileIngress(ctx context.Context, rb *resourcebu
 }
 
 // reconcileDatabase handles Service resources of type "database"
-func (r *ServiceReconciler) reconcileDatabase(ctx context.Context, rb *resourcebuilder.ResourceBuilder, service v1.Service) error {
+func (r *ServiceReconciler) reconcileDatabase(ctx context.Context, rb resourcebuilder.ResourceBuilderInterface, service v1.Service) error {
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling database", "service", fmt.Sprintf("%s/%s", service.Namespace, service.Name))
 
