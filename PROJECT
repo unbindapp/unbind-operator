@@ -5,6 +5,8 @@
 domain: unbind.app
 layout:
 - go.kubebuilder.io/v4
+plugins:
+  helm.kubebuilder.io/v1-alpha: {}
 projectName: unbind-operator
 repo: github.com/unbindapp/unbind-operator
 resources:
