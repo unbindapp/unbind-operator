@@ -60,6 +60,9 @@ type ServiceSpec struct {
 	// Configuration for the service
 	Config ServiceConfigSpec `json:"config"`
 
+	// DeploymentRef is a reference to the deployment this service is based on
+	DeploymentRef string `json:"deploymentRef,omitempty"`
+
 	// ServiceRef is a reference to the service this service is based on
 	ServiceRef string `json:"serviceRef,omitempty"`
 

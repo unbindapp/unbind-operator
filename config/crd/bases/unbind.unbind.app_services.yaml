@@ -137,6 +137,10 @@ spec:
                 - database
                 - image
                 type: object
+              deploymentRef:
+                description: DeploymentRef is a reference to the deployment this service
+                  is based on
+                type: string
               description:
                 description: Description of the service
                 type: string

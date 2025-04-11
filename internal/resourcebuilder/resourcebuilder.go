@@ -49,6 +49,7 @@ func (rb *ResourceBuilder) getCommonLabels() map[string]string {
 	labels["unbind-project"] = rb.service.Spec.ProjectRef
 	labels["unbind-service"] = rb.service.Spec.ServiceRef
 	labels["unbind-environment"] = rb.service.Spec.EnvironmentRef
+	labels["unbind-deployment"] = rb.service.Spec.DeploymentRef
 
 	if rb.service.Spec.Provider != "" {
 		labels["unbind-provider"] = rb.service.Spec.Provider

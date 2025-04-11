@@ -61,14 +61,11 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 
 	// Render the db
 	renderedYaml, err := dbRenderer.Render(fetchedDb, &databases.RenderContext{
-		Name:          rb.service.Name,
-		Namespace:     rb.service.Namespace,
-		TeamID:        rb.service.Spec.TeamRef,
-		ProjectID:     rb.service.Spec.ProjectRef,
-		EnvironmentID: rb.service.Spec.EnvironmentRef,
-		ServiceID:     rb.service.Spec.ServiceRef,
-		Definition:    *fetchedDb,
-		Parameters:    dbConfig,
+		Name:       rb.service.Name,
+		Namespace:  rb.service.Namespace,
+		TeamID:     rb.service.Spec.TeamRef,
+		Definition: *fetchedDb,
+		Parameters: dbConfig,
 	})
 
 	if err != nil {
