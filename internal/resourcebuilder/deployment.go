@@ -30,7 +30,7 @@ func (rb *ResourceBuilder) BuildDeployment() (*appsv1.Deployment, error) {
 
 	// Create the container
 	container := corev1.Container{
-		Name:  "service",
+		Name:  rb.service.Name,
 		Image: rb.service.Spec.Config.Image,
 		Ports: ports,
 		// Always load service environment
