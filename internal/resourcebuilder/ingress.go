@@ -51,6 +51,8 @@ func (rb *ResourceBuilder) BuildIngress() (*networkingv1.Ingress, error) {
 		}
 		tlsHosts[i] = host.Host
 	}
+
+	ingressClass := "nginx"
 	ingress := &networkingv1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        rb.service.Name,
@@ -59,6 +61,7 @@ func (rb *ResourceBuilder) BuildIngress() (*networkingv1.Ingress, error) {
 			Annotations: rb.buildIngressAnnotations(),
 		},
 		Spec: networkingv1.IngressSpec{
+			IngressClassName: &ingressClass,
 			TLS: []networkingv1.IngressTLS{{
 				Hosts:      tlsHosts,
 				SecretName: fmt.Sprintf("%s-tls-secret", strings.ToLower(rb.service.Name)),

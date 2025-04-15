@@ -68,7 +68,6 @@ func (rb *ResourceBuilder) buildPodAnnotations() map[string]string {
 
 func (rb *ResourceBuilder) buildIngressAnnotations() map[string]string {
 	return map[string]string{
-		"kubernetes.io/ingress.class":                        "nginx",
 		"cert-manager.io/cluster-issuer":                     "letsencrypt-prod",
 		"nginx.ingress.kubernetes.io/eventsource":            "true",
 		"nginx.ingress.kubernetes.io/add-base-url":           "true",
