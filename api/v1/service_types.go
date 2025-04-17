@@ -60,6 +60,9 @@ type ServiceSpec struct {
 	// Configuration for the service
 	Config ServiceConfigSpec `json:"config"`
 
+	// Additional environment variables to attach
+	EnvVars []corev1.EnvVar `json:"envVars,omitempty"`
+
 	// DeploymentRef is a reference to the deployment this service is based on
 	DeploymentRef string `json:"deploymentRef,omitempty"`
 

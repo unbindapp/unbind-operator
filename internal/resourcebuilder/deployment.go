@@ -43,6 +43,7 @@ func (rb *ResourceBuilder) BuildDeployment() (*appsv1.Deployment, error) {
 				},
 			},
 		},
+		Env: rb.service.Spec.EnvVars,
 		// ! TODO
 		// Resources: rb.buildResourceRequirements(),
 		// LivenessProbe: rb.buildLivenessProbe(port),
