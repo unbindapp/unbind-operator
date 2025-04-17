@@ -45,6 +45,12 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 		dbConfig["labels"].(map[string]string)[k] = v
 	}
 
+	// Append env
+	dbConfig["environment"] = make(map[string]string)
+	for _, v := range rb.service.Spec.EnvVars {
+		dbConfig["environment"].(map[string]string)[v.Name] = v.Value
+	}
+
 	// Get common config, if it exists as a key
 	_, ok = dbConfig["common"]
 	if !ok {
