@@ -21,7 +21,7 @@ spec:
     - jsonPath: .spec.projectRef
       name: Project
       type: string
-    - jsonPath: .spec.environmentId
+    - jsonPath: .spec.environmentRef
       name: Environment
       type: string
     - jsonPath: .spec.type
@@ -29,9 +29,6 @@ spec:
       type: string
     - jsonPath: .status.deploymentStatus
       name: Status
-      type: string
-    - jsonPath: .status.url
-      name: URL
       type: string
     name: v1
     schema:
