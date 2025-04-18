@@ -66,8 +66,8 @@ func (rb *ResourceBuilder) BuildDeployment() (*appsv1.Deployment, error) {
 	}
 
 	// Make pull secrets
-	imagePullSecrets := make([]corev1.LocalObjectReference, len(rb.service.Spec.RegistrySecrets))
-	for i, secret := range rb.service.Spec.RegistrySecrets {
+	imagePullSecrets := make([]corev1.LocalObjectReference, len(rb.service.Spec.ImagePullSecrets))
+	for i, secret := range rb.service.Spec.ImagePullSecrets {
 		imagePullSecrets[i] = corev1.LocalObjectReference{
 			Name: secret,
 		}
