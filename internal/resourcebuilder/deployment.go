@@ -65,6 +65,14 @@ func (rb *ResourceBuilder) BuildDeployment() (*appsv1.Deployment, error) {
 		}
 	}
 
+	// Make pull secrets
+	imagePullSecrets := make([]corev1.LocalObjectReference, len(rb.service.Spec.RegistrySecrets))
+	for i, secret := range rb.service.Spec.RegistrySecrets {
+		imagePullSecrets[i] = corev1.LocalObjectReference{
+			Name: secret,
+		}
+	}
+
 	deployment := &appsv1.Deployment{
 		ObjectMeta: rb.buildObjectMeta(),
 		Spec: appsv1.DeploymentSpec{
@@ -78,10 +86,8 @@ func (rb *ResourceBuilder) BuildDeployment() (*appsv1.Deployment, error) {
 					Annotations: rb.buildPodAnnotations(),
 				},
 				Spec: corev1.PodSpec{
-					ImagePullSecrets: []corev1.LocalObjectReference{{
-						Name: REGISTRY_SECRET_NAME,
-					}},
-					Containers: []corev1.Container{container},
+					ImagePullSecrets: imagePullSecrets,
+					Containers:       []corev1.Container{container},
 				},
 			},
 		},

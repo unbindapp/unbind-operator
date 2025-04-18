@@ -8,9 +8,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// ! We operate under the assumption that the namespace has a registry credential created
-const REGISTRY_SECRET_NAME = "unbind-registry-credentials"
-
 // Resourcebuilder is responsible for building native k8s resources
 type ResourceBuilder struct {
 	service *v1.Service

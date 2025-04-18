@@ -289,6 +289,11 @@ spec:
               provider:
                 description: Provider (e.g. Go, Python, Node, Deno)
                 type: string
+              registrySecrets:
+                description: Registry secrets to pull images from
+                items:
+                  type: string
+                type: array
               serviceRef:
                 description: ServiceRef is a reference to the service this service
                   is based on

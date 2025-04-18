@@ -63,6 +63,9 @@ type ServiceSpec struct {
 	// Additional environment variables to attach
 	EnvVars []corev1.EnvVar `json:"envVars,omitempty"`
 
+	// Registry secrets to pull images from
+	RegistrySecrets []string `json:"registrySecrets,omitempty"`
+
 	// DeploymentRef is a reference to the deployment this service is based on
 	DeploymentRef string `json:"deploymentRef,omitempty"`
 
