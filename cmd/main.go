@@ -37,6 +37,8 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	helmv2beta1 "github.com/fluxcd/helm-controller/api/v2beta1"
+	sourcev1beta2 "github.com/fluxcd/source-controller/api/v1beta2"
 	unbindv1 "github.com/unbindapp/unbind-operator/api/v1"
 	"github.com/unbindapp/unbind-operator/internal/controller"
 	postgresv1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
@@ -54,6 +56,9 @@ func init() {
 	utilruntime.Must(unbindv1.AddToScheme(scheme))
 
 	utilruntime.Must(postgresv1.AddToScheme(scheme))
+
+	utilruntime.Must(helmv2beta1.AddToScheme(scheme))
+	utilruntime.Must(sourcev1beta2.AddToScheme(scheme))
 
 	// +kubebuilder:scaffold:scheme
 }

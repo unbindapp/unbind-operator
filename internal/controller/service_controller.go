@@ -18,10 +18,14 @@ package controller
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"reflect"
 	"time"
 
+	helmv2beta1 "github.com/fluxcd/helm-controller/api/v2beta1"
+	sourcev1beta2 "github.com/fluxcd/source-controller/api/v1beta2"
 	v1 "github.com/unbindapp/unbind-operator/api/v1"
 	"github.com/unbindapp/unbind-operator/internal/resourcebuilder"
 	postgresv1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
@@ -64,6 +68,10 @@ func (r *ServiceReconciler) newResourceBuilder(service *v1.Service) resourcebuil
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=acid.zalan.do,resources=postgresqls,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=helm.toolkit.fluxcd.io,resources=helmreleases,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=source.toolkit.fluxcd.io,resources=helmrepositories,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=helm.toolkit.fluxcd.io,resources=helmreleases/status,verbs=get
+// +kubebuilder:rbac:groups=source.toolkit.fluxcd.io,resources=helmrepositories/status,verbs=get
 
 // Reconcile is the main reconciliation loop for the Service resource
 func (r *ServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -418,6 +426,14 @@ func (r *ServiceReconciler) reconcileDatabase(ctx context.Context, rb resourcebu
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling database", "service", fmt.Sprintf("%s/%s", service.Namespace, service.Name))
 
+	// For Redis, create the secret first if it doesn't exist
+	if service.Spec.Config.Database.Type == "redis" && service.Spec.KubernetesSecret != "" {
+		if err := r.ensureRedisSecret(ctx, &service); err != nil {
+			logger.Error(err, "Failed to ensure Redis secret")
+			return err
+		}
+	}
+
 	// Get database def content from service spec
 	runtimeObjects, err := rb.BuildDatabaseObjects(ctx, logger)
 	if err != nil {
@@ -431,7 +447,7 @@ func (r *ServiceReconciler) reconcileDatabase(ctx context.Context, rb resourcebu
 	}
 
 	// Check if we need to copy Zalando PostgreSQL credentials to a different Secret
-	if service.Spec.KubernetesSecret != "" {
+	if service.Spec.Config.Database.Type == "postgres-operator" && service.Spec.KubernetesSecret != "" {
 		if err := r.copyPostgresCredentials(ctx, &service); err != nil {
 			logger.Error(err, "Failed to copy PostgreSQL credentials")
 			return err
@@ -439,6 +455,94 @@ func (r *ServiceReconciler) reconcileDatabase(ctx context.Context, rb resourcebu
 	}
 
 	return nil
+}
+
+// ensureRedisSecret creates or updates a secret for Redis with a generated password
+func (r *ServiceReconciler) ensureRedisSecret(ctx context.Context, service *v1.Service) error {
+	logger := log.FromContext(ctx)
+	secretName := service.Spec.KubernetesSecret
+
+	// Check if the secret already exists
+	secret := &corev1.Secret{}
+	err := r.Get(ctx, types.NamespacedName{
+		Namespace: service.Namespace,
+		Name:      secretName,
+	}, secret)
+
+	if err != nil {
+		if !errors.IsNotFound(err) {
+			return fmt.Errorf("failed to check if Redis secret exists: %w", err)
+		}
+
+		// Secret doesn't exist, create a new one with a generated password
+		password, err := generateSecurePassword(32)
+		if err != nil {
+			return fmt.Errorf("failed to generate Redis password: %w", err)
+		}
+
+		// Create a new secret
+		newSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      secretName,
+				Namespace: service.Namespace,
+			},
+			Type: corev1.SecretTypeOpaque,
+			Data: map[string][]byte{
+				"REDIS_PASSWORD": []byte(password),
+				"REDIS_PORT":     []byte("6379"), // Default Redis port
+			},
+		}
+
+		// Set owner reference
+		if err := controllerutil.SetControllerReference(service, newSecret, r.Scheme); err != nil {
+			return fmt.Errorf("setting controller reference on Redis secret: %w", err)
+		}
+
+		logger.Info("Creating new Redis secret", "secretName", secretName)
+		if err := r.Create(ctx, newSecret); err != nil {
+			return fmt.Errorf("failed to create Redis secret: %w", err)
+		}
+	} else {
+		// Secret exists, check if it has a Redis password
+		if _, ok := secret.Data["REDIS_PASSWORD"]; !ok {
+			// No password exists, generate one
+			password, err := generateSecurePassword(32)
+			if err != nil {
+				return fmt.Errorf("failed to generate Redis password: %w", err)
+			}
+
+			// Initialize data map if needed
+			if secret.Data == nil {
+				secret.Data = map[string][]byte{}
+			}
+
+			// Update the secret with the password
+			secret.Data["REDIS_PASSWORD"] = []byte(password)
+			secret.Data["REDIS_PORT"] = []byte("6379")
+
+			// Set owner reference if not already set
+			if err := controllerutil.SetControllerReference(service, secret, r.Scheme); err != nil {
+				return fmt.Errorf("setting controller reference on Redis secret: %w", err)
+			}
+
+			logger.Info("Updating existing Redis secret", "secretName", secretName)
+			if err := r.Update(ctx, secret); err != nil {
+				return fmt.Errorf("failed to update Redis secret: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// generateSecurePassword generates a cryptographically secure random password
+func generateSecurePassword(length int) (string, error) {
+	b := make([]byte, length)
+	_, err := rand.Read(b)
+	if err != nil {
+		return "", err
+	}
+	return base64.URLEncoding.EncodeToString(b)[:length], nil
 }
 
 // copyPostgresCredentials copies credentials from Zalando PostgreSQL secret to the target secret
@@ -609,6 +713,82 @@ func (r *ServiceReconciler) reconcilePostgresql(ctx context.Context, postgres *p
 	return nil
 }
 
+// reconcileHelmRelease handles HelmRelease resources
+func (r *ServiceReconciler) reconcileHelmRelease(ctx context.Context, helmRelease *helmv2beta1.HelmRelease, owner *v1.Service) error {
+	logger := log.FromContext(ctx)
+	logger.Info("Reconciling HelmRelease", "name", helmRelease.Name, "namespace", helmRelease.Namespace)
+
+	// Set controller reference
+	if err := controllerutil.SetControllerReference(owner, helmRelease, r.Scheme); err != nil {
+		return fmt.Errorf("setting controller reference: %w", err)
+	}
+
+	// Check if the resource exists
+	var existing helmv2beta1.HelmRelease
+	err := r.Get(ctx, client.ObjectKey{Namespace: helmRelease.Namespace, Name: helmRelease.Name}, &existing)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// Create the resource
+			logger.Info("Creating HelmRelease", "name", helmRelease.Name)
+			return r.Create(ctx, helmRelease)
+		}
+		return err
+	}
+
+	// Resource exists, check if it needs to be updated
+	if !reflect.DeepEqual(existing.Spec, helmRelease.Spec) {
+		// Preserve status field
+		status := existing.Status.DeepCopy()
+
+		// Update the resource
+		existing.Spec = helmRelease.Spec
+		existing.Status = *status
+
+		logger.Info("Updating HelmRelease", "name", helmRelease.Name)
+		return r.Update(ctx, &existing)
+	}
+
+	return nil
+}
+
+// reconcileHelmRepository handles HelmRepository resources
+func (r *ServiceReconciler) reconcileHelmRepository(ctx context.Context, helmRepo *sourcev1beta2.HelmRepository, owner *v1.Service) error {
+	logger := log.FromContext(ctx)
+	logger.Info("Reconciling HelmRepository", "name", helmRepo.Name, "namespace", helmRepo.Namespace)
+
+	// Set controller reference
+	if err := controllerutil.SetControllerReference(owner, helmRepo, r.Scheme); err != nil {
+		return fmt.Errorf("setting controller reference: %w", err)
+	}
+
+	// Check if the resource exists
+	var existing sourcev1beta2.HelmRepository
+	err := r.Get(ctx, client.ObjectKey{Namespace: helmRepo.Namespace, Name: helmRepo.Name}, &existing)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// Create the resource
+			logger.Info("Creating HelmRepository", "name", helmRepo.Name)
+			return r.Create(ctx, helmRepo)
+		}
+		return err
+	}
+
+	// Resource exists, check if it needs to be updated
+	if !reflect.DeepEqual(existing.Spec, helmRepo.Spec) {
+		// Preserve status field
+		status := existing.Status.DeepCopy()
+
+		// Update the resource
+		existing.Spec = helmRepo.Spec
+		existing.Status = *status
+
+		logger.Info("Updating HelmRepository", "name", helmRepo.Name)
+		return r.Update(ctx, &existing)
+	}
+
+	return nil
+}
+
 // Update reconcileRuntimeObjects to handle typed CRDs
 func (r *ServiceReconciler) reconcileRuntimeObjects(ctx context.Context, objects []runtime.Object, service v1.Service) error {
 	logger := log.FromContext(ctx)
@@ -619,6 +799,16 @@ func (r *ServiceReconciler) reconcileRuntimeObjects(ctx context.Context, objects
 		case *postgresv1.Postgresql:
 			if err := r.reconcilePostgresql(ctx, typedObj, &service); err != nil {
 				return fmt.Errorf("reconciling Postgresql: %w", err)
+			}
+
+		case *helmv2beta1.HelmRelease:
+			if err := r.reconcileHelmRelease(ctx, typedObj, &service); err != nil {
+				return fmt.Errorf("reconciling HelmRelease: %w", err)
+			}
+
+		case *sourcev1beta2.HelmRepository:
+			if err := r.reconcileHelmRepository(ctx, typedObj, &service); err != nil {
+				return fmt.Errorf("reconciling HelmRepository: %w", err)
 			}
 
 		default:
