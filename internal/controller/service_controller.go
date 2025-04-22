@@ -493,11 +493,6 @@ func (r *ServiceReconciler) ensureRedisSecret(ctx context.Context, service *v1.S
 			},
 		}
 
-		// Set owner reference
-		if err := controllerutil.SetControllerReference(service, newSecret, r.Scheme); err != nil {
-			return fmt.Errorf("setting controller reference on Redis secret: %w", err)
-		}
-
 		logger.Info("Creating new Redis secret", "secretName", secretName)
 		if err := r.Create(ctx, newSecret); err != nil {
 			return fmt.Errorf("failed to create Redis secret: %w", err)
@@ -519,11 +514,6 @@ func (r *ServiceReconciler) ensureRedisSecret(ctx context.Context, service *v1.S
 			// Update the secret with the password
 			secret.Data["REDIS_PASSWORD"] = []byte(password)
 			secret.Data["REDIS_PORT"] = []byte("6379")
-
-			// Set owner reference if not already set
-			if err := controllerutil.SetControllerReference(service, secret, r.Scheme); err != nil {
-				return fmt.Errorf("setting controller reference on Redis secret: %w", err)
-			}
 
 			logger.Info("Updating existing Redis secret", "secretName", secretName)
 			if err := r.Update(ctx, secret); err != nil {
