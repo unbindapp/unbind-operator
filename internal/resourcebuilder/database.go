@@ -105,7 +105,11 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 	}
 
 	// Set replica count from service config
-	commonMap["replicas"] = rb.service.Spec.Config.Replicas
+	var replicaCount int32 = 1 // Default replica count if pointer is nil or not specified
+	if rb.service.Spec.Config.Replicas != nil {
+		replicaCount = *rb.service.Spec.Config.Replicas
+	}
+	commonMap["replicas"] = replicaCount
 
 	// For database-specific settings
 	if rb.service.Spec.Config.Public {
