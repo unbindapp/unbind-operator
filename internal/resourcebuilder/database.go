@@ -8,9 +8,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/unbindapp/unbind-api/pkg/databases"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 // BuildDatabaseObjects renders and returns Kubernetes objects for the database
@@ -140,26 +138,6 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 			"type", fetchedDb.Type,
 			"name", fetchedDb.Name)
 		return nil, err
-	}
-
-	// Register Helm-related CRDs with the renderer if needed
-	if fetchedDb.Type == "helm" {
-		logger.Info("Registering Helm CRDs with renderer")
-
-		// Register Flux CD CRDs if they're being used
-		helmReleaseGVK := schema.GroupVersionKind{
-			Group:   "helm.toolkit.fluxcd.io",
-			Version: "v2beta1",
-			Kind:    "HelmRelease",
-		}
-		dbRenderer.RegisterCRD(helmReleaseGVK, &unstructured.Unstructured{})
-
-		helmRepoGVK := schema.GroupVersionKind{
-			Group:   "source.toolkit.fluxcd.io",
-			Version: "v1beta2",
-			Kind:    "HelmRepository",
-		}
-		dbRenderer.RegisterCRD(helmRepoGVK, &unstructured.Unstructured{})
 	}
 
 	// Create resources from the rendered YAML

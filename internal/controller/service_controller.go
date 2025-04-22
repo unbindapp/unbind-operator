@@ -24,8 +24,8 @@ import (
 	"reflect"
 	"time"
 
-	helmv2beta1 "github.com/fluxcd/helm-controller/api/v2beta1"
-	sourcev1beta2 "github.com/fluxcd/source-controller/api/v1beta2"
+	helmv2 "github.com/fluxcd/helm-controller/api/v2"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	v1 "github.com/unbindapp/unbind-operator/api/v1"
 	"github.com/unbindapp/unbind-operator/internal/resourcebuilder"
 	postgresv1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
@@ -714,7 +714,7 @@ func (r *ServiceReconciler) reconcilePostgresql(ctx context.Context, postgres *p
 }
 
 // reconcileHelmRelease handles HelmRelease resources
-func (r *ServiceReconciler) reconcileHelmRelease(ctx context.Context, helmRelease *helmv2beta1.HelmRelease, owner *v1.Service) error {
+func (r *ServiceReconciler) reconcileHelmRelease(ctx context.Context, helmRelease *helmv2.HelmRelease, owner *v1.Service) error {
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling HelmRelease", "name", helmRelease.Name, "namespace", helmRelease.Namespace)
 
@@ -724,7 +724,7 @@ func (r *ServiceReconciler) reconcileHelmRelease(ctx context.Context, helmReleas
 	}
 
 	// Check if the resource exists
-	var existing helmv2beta1.HelmRelease
+	var existing helmv2.HelmRelease
 	err := r.Get(ctx, client.ObjectKey{Namespace: helmRelease.Namespace, Name: helmRelease.Name}, &existing)
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -752,7 +752,7 @@ func (r *ServiceReconciler) reconcileHelmRelease(ctx context.Context, helmReleas
 }
 
 // reconcileHelmRepository handles HelmRepository resources
-func (r *ServiceReconciler) reconcileHelmRepository(ctx context.Context, helmRepo *sourcev1beta2.HelmRepository, owner *v1.Service) error {
+func (r *ServiceReconciler) reconcileHelmRepository(ctx context.Context, helmRepo *sourcev1.HelmRepository, owner *v1.Service) error {
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling HelmRepository", "name", helmRepo.Name, "namespace", helmRepo.Namespace)
 
@@ -762,7 +762,7 @@ func (r *ServiceReconciler) reconcileHelmRepository(ctx context.Context, helmRep
 	}
 
 	// Check if the resource exists
-	var existing sourcev1beta2.HelmRepository
+	var existing sourcev1.HelmRepository
 	err := r.Get(ctx, client.ObjectKey{Namespace: helmRepo.Namespace, Name: helmRepo.Name}, &existing)
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -801,12 +801,12 @@ func (r *ServiceReconciler) reconcileRuntimeObjects(ctx context.Context, objects
 				return fmt.Errorf("reconciling Postgresql: %w", err)
 			}
 
-		case *helmv2beta1.HelmRelease:
+		case *helmv2.HelmRelease:
 			if err := r.reconcileHelmRelease(ctx, typedObj, &service); err != nil {
 				return fmt.Errorf("reconciling HelmRelease: %w", err)
 			}
 
-		case *sourcev1beta2.HelmRepository:
+		case *sourcev1.HelmRepository:
 			if err := r.reconcileHelmRepository(ctx, typedObj, &service); err != nil {
 				return fmt.Errorf("reconciling HelmRepository: %w", err)
 			}
