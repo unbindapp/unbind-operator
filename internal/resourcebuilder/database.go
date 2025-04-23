@@ -102,6 +102,9 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 		commonMap = dbConfig["common"].(map[string]interface{})
 	}
 
+	// Set namespace for extra resources
+	commonMap["namespace"] = rb.service.Namespace
+
 	// Set replica count from service config
 	var replicaCount int32 = 1 // Default replica count if pointer is nil or not specified
 	if rb.service.Spec.Config.Replicas != nil {
