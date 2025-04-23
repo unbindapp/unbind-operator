@@ -121,23 +121,21 @@ func (r *ServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			logger.Error(err, "Failed to reconcile runtime objects")
 			return ctrl.Result{}, err
 		}
-	}
+	} else {
+		// * Generic path
+		// Create or update the Deployment
+		if err := r.reconcileDeployment(ctx, rb, service); err != nil {
+			logger.Error(err, "Failed to reconcile Deployment")
+			return ctrl.Result{}, err
+		}
 
-	// * Generic path
-	// Create or update the Deployment
-	if err := r.reconcileDeployment(ctx, rb, service); err != nil {
-		logger.Error(err, "Failed to reconcile Deployment")
-		return ctrl.Result{}, err
-	}
+		// Create or update the Service
+		if err := r.reconcileService(ctx, rb, service); err != nil {
+			logger.Error(err, "Failed to reconcile Service")
+			return ctrl.Result{}, err
+		}
 
-	// Create or update the Service
-	if err := r.reconcileService(ctx, rb, service); err != nil {
-		logger.Error(err, "Failed to reconcile Service")
-		return ctrl.Result{}, err
-	}
-
-	// Create or update the Ingress if needed
-	if service.Spec.Type != "database" {
+		// Create or update the Ingress if needed
 		if err := r.reconcileIngress(ctx, rb, service); err != nil {
 			logger.Error(err, "Failed to reconcile Ingress")
 			return ctrl.Result{}, err
