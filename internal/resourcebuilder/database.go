@@ -111,9 +111,7 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 
 	// For database-specific settings
 	if rb.service.Spec.Config.Public {
-		if rb.service.Spec.Config.Database.Type == "postgres" {
-			dbConfig["enableMasterLoadBalancer"] = true
-		}
+		commonMap["exposeExternal"] = true
 	}
 
 	// Add kubernetes secret name if specified in the service
