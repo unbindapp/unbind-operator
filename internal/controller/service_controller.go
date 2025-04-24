@@ -487,7 +487,6 @@ func (r *ServiceReconciler) ensureRedisSecret(ctx context.Context, service *v1.S
 			Type: corev1.SecretTypeOpaque,
 			Data: map[string][]byte{
 				"DATABASE_PASSWORD": []byte(password),
-				"DATABASE_PORT":     []byte("6379"), // Default Redis port
 			},
 		}
 
@@ -511,7 +510,6 @@ func (r *ServiceReconciler) ensureRedisSecret(ctx context.Context, service *v1.S
 
 			// Update the secret with the password
 			secret.Data["DATABASE_PASSWORD"] = []byte(password)
-			secret.Data["DATABASE_PORT"] = []byte("6379")
 
 			logger.Info("Updating existing Redis secret", "secretName", secretName)
 			if err := r.Update(ctx, secret); err != nil {
