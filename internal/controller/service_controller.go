@@ -618,8 +618,8 @@ func (r *ServiceReconciler) copyPostgresCredentials(ctx context.Context, service
 		hasCredentials := false
 
 		// Check if the secret already has the credentials
-		if _, ok := targetSecret.Data["DEFAULT_USERNAME"]; ok {
-			if _, ok := targetSecret.Data["DEFAULT_PASSWORD"]; ok {
+		if _, ok := targetSecret.Data["DATABASE_USERNAME"]; ok {
+			if _, ok := targetSecret.Data["DATABASE_PASSWORD"]; ok {
 				hasCredentials = true
 			}
 		}
