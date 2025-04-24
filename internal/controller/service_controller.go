@@ -509,6 +509,7 @@ func (r *ServiceReconciler) ensureRedisSecret(ctx context.Context, service *v1.S
 			}
 
 			// Update the secret with the password
+			secret.Data["DATABASE_USERNAME"] = []byte("default")
 			secret.Data["DATABASE_PASSWORD"] = []byte(password)
 
 			logger.Info("Updating existing Redis secret", "secretName", secretName)
