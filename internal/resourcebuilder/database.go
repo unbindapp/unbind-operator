@@ -122,7 +122,7 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 		// For redis
 		if strings.EqualFold(fetchedDb.Name, "redis") {
 			dbConfig["secretName"] = rb.service.Spec.KubernetesSecret
-			dbConfig["secretKey"] = "REDIS_PASSWORD"
+			dbConfig["secretKey"] = "DATABASE_PASSWORD"
 		}
 	}
 
