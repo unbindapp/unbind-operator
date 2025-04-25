@@ -65,7 +65,7 @@ func (rb *ResourceBuilder) buildPodAnnotations() map[string]string {
 
 func (rb *ResourceBuilder) buildIngressAnnotations() map[string]string {
 	return map[string]string{
-		"cert-manager.io/cluster-issuer":                     "letsencrypt-prod",
+		"kubernetes.io/tls-acme":                             "true",
 		"nginx.ingress.kubernetes.io/eventsource":            "true",
 		"nginx.ingress.kubernetes.io/add-base-url":           "true",
 		"nginx.ingress.kubernetes.io/ssl-redirect":           "true",
