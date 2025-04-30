@@ -143,6 +143,17 @@ type DatabaseSpec struct {
 	// DatabaseSpecVersion is a reference to the version of the database spec
 	DatabaseSpecVersion string               `json:"databaseSpecVersion"`
 	Config              runtime.RawExtension `json:"config,omitempty"`
+	// S3Config for backupps
+	S3BackupConfig *S3ConfigSpec `json:"s3BackupConfig,omitempty"`
+	// ! TODO - restore options
+}
+
+type S3ConfigSpec struct {
+	Bucket   string `json:"bucket"`
+	Endpoint string `json:"endpoint"`
+	Region   string `json:"region"`
+	// secret name containing the credentials
+	SecretName string `json:"secretName"`
 }
 
 // +kubebuilder:object:root=true

@@ -71,6 +71,24 @@ spec:
                         description: DatabaseSpecVersion is a reference to the version
                           of the database spec
                         type: string
+                      s3BackupConfig:
+                        description: S3Config for backupps
+                        properties:
+                          bucket:
+                            type: string
+                          endpoint:
+                            type: string
+                          region:
+                            type: string
+                          secretName:
+                            description: secret name containing the credentials
+                            type: string
+                        required:
+                        - bucket
+                        - endpoint
+                        - region
+                        - secretName
+                        type: object
                       type:
                         description: Type of the database
                         type: string

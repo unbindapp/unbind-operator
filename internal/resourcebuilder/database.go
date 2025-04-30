@@ -126,6 +126,17 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 		}
 	}
 
+	// Database backups
+	dbConfig["s3"] = make(map[string]interface{})
+	s3Map := dbConfig["s3"].(map[string]interface{})
+	if rb.service.Spec.Config.Database.S3BackupConfig != nil {
+		s3Map["enabled"] = true
+		s3Map["bucket"] = rb.service.Spec.Config.Database.S3BackupConfig.Bucket
+		s3Map["region"] = rb.service.Spec.Config.Database.S3BackupConfig.Region
+		s3Map["endpoint"] = rb.service.Spec.Config.Database.S3BackupConfig.Endpoint
+		s3Map["secretName"] = rb.service.Spec.Config.Database.S3BackupConfig.SecretName
+	}
+
 	// Render the database definition
 	renderedYaml, err := dbRenderer.Render(fetchedDb, &databases.RenderContext{
 		Name:       rb.service.Name,
