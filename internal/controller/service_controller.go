@@ -445,7 +445,7 @@ func (r *ServiceReconciler) reconcileDatabase(ctx context.Context, rb resourcebu
 	}
 
 	// Check if we need to copy Zalando PostgreSQL credentials to a different Secret
-	if service.Spec.Config.Database.Type == "postgres-operator" && service.Spec.KubernetesSecret != "" {
+	if service.Spec.Config.Database.Type == "postgres" && service.Spec.KubernetesSecret != "" {
 		if err := r.copyPostgresCredentials(ctx, &service); err != nil {
 			logger.Error(err, "Failed to copy PostgreSQL credentials")
 			return err
