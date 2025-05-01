@@ -655,16 +655,11 @@ func updateSecretData(targetSecret *corev1.Secret, zalandoSecret *corev1.Secret,
 	// Copy the credentials (username and password)
 	// Zalando PostgreSQL operator typically uses these keys
 	if username, ok := zalandoSecret.Data["username"]; ok {
-		targetSecret.Data["DEFAULT_USERNAME"] = username
+		targetSecret.Data["DATABASE_USERNAME"] = username
 	}
 	if password, ok := zalandoSecret.Data["password"]; ok {
-		targetSecret.Data["DEFAULT_PASSWORD"] = password
+		targetSecret.Data["DATABASE_PASSWORD"] = password
 	}
-
-	// Add database name and host information
-	targetSecret.Data["DEFAULT_DATABASE"] = []byte("postgres")
-	targetSecret.Data["HOST"] = []byte(fmt.Sprintf("%s.%s.svc.cluster.local", service.Name, service.Namespace))
-	targetSecret.Data["PORT"] = []byte("5432") // Default PostgreSQL port
 }
 
 // Handle CRD-specific reconciliation
