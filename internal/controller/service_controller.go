@@ -27,6 +27,7 @@ import (
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	v1 "github.com/unbindapp/unbind-operator/api/v1"
+	"github.com/unbindapp/unbind-operator/internal/operator"
 	"github.com/unbindapp/unbind-operator/internal/resourcebuilder"
 	postgresv1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -51,7 +52,8 @@ const (
 // ServiceReconciler reconciles a Service object
 type ServiceReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme          *runtime.Scheme
+	OperatorManager *operator.OperatorManager
 }
 
 func (r *ServiceReconciler) newResourceBuilder(service *v1.Service) resourcebuilder.ResourceBuilderInterface {
@@ -72,6 +74,7 @@ func (r *ServiceReconciler) newResourceBuilder(service *v1.Service) resourcebuil
 // +kubebuilder:rbac:groups=source.toolkit.fluxcd.io,resources=helmrepositories,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=helm.toolkit.fluxcd.io,resources=helmreleases/status,verbs=get
 // +kubebuilder:rbac:groups=source.toolkit.fluxcd.io,resources=helmrepositories/status,verbs=get
+// +kubebuilder:rbac:groups=mysql.oracle.com,resources=innodbclusters,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is the main reconciliation loop for the Service resource
 func (r *ServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -424,11 +427,27 @@ func (r *ServiceReconciler) reconcileDatabase(ctx context.Context, rb resourcebu
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling database", "service", fmt.Sprintf("%s/%s", service.Namespace, service.Name))
 
-	// For Redis, create the secret first if it doesn't exist
-	if service.Spec.Config.Database.Type == "redis" && service.Spec.KubernetesSecret != "" {
-		if err := r.ensureRedisSecret(ctx, &service); err != nil {
-			logger.Error(err, "Failed to ensure Redis secret")
-			return err
+	// Check and install required operator if needed
+	if err := r.OperatorManager.EnsureOperatorInstalled(ctx, logger, service.Spec.Config.Database.Type, service.Namespace); err != nil {
+		logger.Error(err, "Failed to ensure operator is installed")
+		return err
+	}
+
+	// Handle database-specific secret creation
+	switch service.Spec.Config.Database.Type {
+	case "redis":
+		if service.Spec.KubernetesSecret != "" {
+			if err := r.ensureRedisSecret(ctx, &service); err != nil {
+				logger.Error(err, "Failed to ensure Redis secret")
+				return err
+			}
+		}
+	case "mysql":
+		if service.Spec.KubernetesSecret != "" {
+			if err := r.ensureMySQLSecret(ctx, &service); err != nil {
+				logger.Error(err, "Failed to ensure MySQL secret")
+				return err
+			}
 		}
 	}
 
@@ -531,6 +550,134 @@ func generateSecurePassword(length int) (string, error) {
 		return "", err
 	}
 	return base64.URLEncoding.EncodeToString(b)[:length], nil
+}
+
+// ensureMySQLSecret creates or updates a secret for MySQL with the required credentials
+func (r *ServiceReconciler) ensureMySQLSecret(ctx context.Context, service *v1.Service) error {
+	logger := log.FromContext(ctx)
+	operatorSecretName := fmt.Sprintf("mysql-%s", service.Name)
+	externalSecretName := service.Spec.KubernetesSecret
+
+	// Check if the operator-owned secret exists
+	operatorSecret := &corev1.Secret{}
+	err := r.Get(ctx, types.NamespacedName{
+		Namespace: service.Namespace,
+		Name:      operatorSecretName,
+	}, operatorSecret)
+
+	if err != nil {
+		if !errors.IsNotFound(err) {
+			return fmt.Errorf("failed to check if MySQL operator secret exists: %w", err)
+		}
+
+		// Secret doesn't exist, create a new one with generated password
+		password, err := generateSecurePassword(32)
+		if err != nil {
+			return fmt.Errorf("failed to generate MySQL password: %w", err)
+		}
+
+		// Create a new operator-owned secret
+		newSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      operatorSecretName,
+				Namespace: service.Namespace,
+			},
+			Type: corev1.SecretTypeOpaque,
+			Data: map[string][]byte{
+				"rootUser":     []byte("root"),
+				"rootPassword": []byte(password),
+				"rootHost":     []byte("%"),
+			},
+		}
+
+		// Set the service as the owner of the secret
+		if err := controllerutil.SetControllerReference(service, newSecret, r.Scheme); err != nil {
+			return fmt.Errorf("failed to set controller reference: %w", err)
+		}
+
+		logger.Info("Creating new MySQL operator secret", "secretName", operatorSecretName)
+		if err := r.Create(ctx, newSecret); err != nil {
+			return fmt.Errorf("failed to create MySQL operator secret: %w", err)
+		}
+		operatorSecret = newSecret
+	} else {
+		// Secret exists, check if it has the required fields
+		needsUpdate := false
+		if operatorSecret.Data == nil {
+			operatorSecret.Data = make(map[string][]byte)
+			needsUpdate = true
+		}
+
+		// Check and set required fields
+		if _, ok := operatorSecret.Data["rootUser"]; !ok {
+			operatorSecret.Data["rootUser"] = []byte("root")
+			needsUpdate = true
+		}
+		if _, ok := operatorSecret.Data["rootPassword"]; !ok {
+			password, err := generateSecurePassword(32)
+			if err != nil {
+				return fmt.Errorf("failed to generate MySQL password: %w", err)
+			}
+			operatorSecret.Data["rootPassword"] = []byte(password)
+			needsUpdate = true
+		}
+		if _, ok := operatorSecret.Data["rootHost"]; !ok {
+			operatorSecret.Data["rootHost"] = []byte("%")
+			needsUpdate = true
+		}
+
+		if needsUpdate {
+			logger.Info("Updating existing MySQL operator secret", "secretName", operatorSecretName)
+			if err := r.Update(ctx, operatorSecret); err != nil {
+				return fmt.Errorf("failed to update MySQL operator secret: %w", err)
+			}
+		}
+	}
+
+	// Now copy credentials to the external secret
+	externalSecret := &corev1.Secret{}
+	err = r.Get(ctx, types.NamespacedName{
+		Namespace: service.Namespace,
+		Name:      externalSecretName,
+	}, externalSecret)
+
+	if err != nil {
+		if !errors.IsNotFound(err) {
+			return fmt.Errorf("failed to check if external secret exists: %w", err)
+		}
+		// External secret doesn't exist, create it
+		externalSecret = &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      externalSecretName,
+				Namespace: service.Namespace,
+			},
+			Type: corev1.SecretTypeOpaque,
+			Data: make(map[string][]byte),
+		}
+	}
+
+	// Copy credentials to external secret
+	externalSecret.Data["DATABASE_USERNAME"] = operatorSecret.Data["rootUser"]
+	externalSecret.Data["DATABASE_PASSWORD"] = operatorSecret.Data["rootPassword"]
+	externalSecret.Data["DATABASE_URL"] = []byte(fmt.Sprintf("mysql://%s:%s@%s.%s:%d/%s",
+		operatorSecret.Data["rootUser"],
+		operatorSecret.Data["rootPassword"],
+		service.Name,
+		service.Namespace,
+		3306,
+		"mysql"))
+
+	if err := r.Create(ctx, externalSecret); err != nil {
+		if errors.IsAlreadyExists(err) {
+			if err := r.Update(ctx, externalSecret); err != nil {
+				return fmt.Errorf("failed to update external secret: %w", err)
+			}
+		} else {
+			return fmt.Errorf("failed to create external secret: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // copyPostgresCredentials copies credentials from Zalando PostgreSQL secret to the target secret

@@ -35,6 +35,7 @@ require (
 	github.com/mitchellh/copystructure v1.2.0 // indirect
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/motomux/pretty v0.0.0-20161209205251-b2aad2c9a95d // indirect
+	github.com/mysql/mysql-operator v0.0.0-20250124093716-cceac9e5cf00 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect

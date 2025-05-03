@@ -28,6 +28,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/discovery"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
@@ -41,6 +42,7 @@ import (
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	unbindv1 "github.com/unbindapp/unbind-operator/api/v1"
 	"github.com/unbindapp/unbind-operator/internal/controller"
+	"github.com/unbindapp/unbind-operator/internal/operator"
 	postgresv1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	// +kubebuilder:scaffold:imports
 )
@@ -52,14 +54,10 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-
 	utilruntime.Must(unbindv1.AddToScheme(scheme))
-
 	utilruntime.Must(postgresv1.AddToScheme(scheme))
-
 	utilruntime.Must(helmv2.AddToScheme(scheme))
 	utilruntime.Must(sourcev1.AddToScheme(scheme))
-
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -211,10 +209,20 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&controller.ServiceReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
+	// Create the service controller
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(mgr.GetConfig())
+	if err != nil {
+		setupLog.Error(err, "unable to create discovery client")
+		os.Exit(1)
+	}
+
+	serviceReconciler := &controller.ServiceReconciler{
+		Client:          mgr.GetClient(),
+		Scheme:          mgr.GetScheme(),
+		OperatorManager: operator.NewOperatorManager(mgr.GetClient(), mgr.GetScheme(), discoveryClient),
+	}
+
+	if err = serviceReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Service")
 		os.Exit(1)
 	}
