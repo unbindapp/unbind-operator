@@ -135,6 +135,7 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 		s3Map["region"] = rb.service.Spec.Config.Database.S3BackupConfig.Region
 		s3Map["endpoint"] = rb.service.Spec.Config.Database.S3BackupConfig.Endpoint
 		s3Map["secretName"] = rb.service.Spec.Config.Database.S3BackupConfig.SecretName
+		s3Map["backupPrefix"] = rb.service.Spec.ServiceRef
 	}
 
 	// Render the database definition
