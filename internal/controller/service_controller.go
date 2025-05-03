@@ -21,6 +21,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"os"
 	"reflect"
 	"time"
 
@@ -427,8 +428,14 @@ func (r *ServiceReconciler) reconcileDatabase(ctx context.Context, rb resourcebu
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling database", "service", fmt.Sprintf("%s/%s", service.Namespace, service.Name))
 
+	// Get the controller's namespace
+	controllerNamespace := os.Getenv("POD_NAMESPACE")
+	if controllerNamespace == "" {
+		return fmt.Errorf("POD_NAMESPACE environment variable not set")
+	}
+
 	// Check and install required operator if needed
-	if err := r.OperatorManager.EnsureOperatorInstalled(ctx, logger, service.Spec.Config.Database.Type, service.Namespace); err != nil {
+	if err := r.OperatorManager.EnsureOperatorInstalled(ctx, logger, service.Spec.Config.Database.Type, controllerNamespace); err != nil {
 		logger.Error(err, "Failed to ensure operator is installed")
 		return err
 	}
