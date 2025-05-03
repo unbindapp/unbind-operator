@@ -543,7 +543,7 @@ func (r *ServiceReconciler) copyPostgresCredentials(ctx context.Context, service
 	// Retry logic to wait for the Zalando secret to be created
 	retries := 0
 	var err error
-	for retries < 3 {
+	for retries < 10 {
 		err = r.Get(ctx, types.NamespacedName{
 			Namespace: service.Namespace,
 			Name:      zalandoSecretName,
