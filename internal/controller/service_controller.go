@@ -511,6 +511,7 @@ func (r *ServiceReconciler) ensureRedisSecret(ctx context.Context, service *v1.S
 			// Update the secret with the password
 			secret.Data["DATABASE_USERNAME"] = []byte("default")
 			secret.Data["DATABASE_PASSWORD"] = []byte(password)
+			secret.Data["DATABASE_URL"] = []byte(fmt.Sprintf("redis://%s:%s@%s-headless:%d", "default", password, service.Name, 6379))
 
 			logger.Info("Updating existing Redis secret", "secretName", secretName)
 			if err := r.Update(ctx, secret); err != nil {
@@ -579,72 +580,41 @@ func (r *ServiceReconciler) copyPostgresCredentials(ctx context.Context, service
 	}, targetSecret)
 
 	if err != nil {
-		if !errors.IsNotFound(err) {
-			return fmt.Errorf("failed to check if target secret exists: %w", err)
-		}
+		// no-op
+		return nil
+	}
+	// Secret exists, check if it's empty or needs credentials copied
+	isEmpty := len(targetSecret.Data) == 0
+	hasCredentials := false
 
-		// Secret doesn't exist, create a new one
-		targetSecret = &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      service.Spec.KubernetesSecret,
-				Namespace: service.Namespace,
-			},
-			Type: corev1.SecretTypeOpaque,
-			Data: map[string][]byte{},
+	// Check if the secret already has the credentials
+	if _, ok := targetSecret.Data["DATABASE_USERNAME"]; ok {
+		if _, ok := targetSecret.Data["DATABASE_PASSWORD"]; ok {
+			if _, ok := targetSecret.Data["DATABASE_URL"]; ok {
+				hasCredentials = true
+			}
 		}
+	}
 
-		// Set owner reference so it's cleaned up with the service
-		if err := controllerutil.SetControllerReference(service, targetSecret, r.Scheme); err != nil {
-			return fmt.Errorf("setting controller reference on target secret: %w", err)
-		}
-
-		logger.Info("Creating new secret with PostgreSQL credentials",
-			"source", zalandoSecretName,
-			"target", service.Spec.KubernetesSecret)
+	if isEmpty || !hasCredentials {
+		logger.Info("Target secret exists but needs credentials copied",
+			"target", service.Spec.KubernetesSecret,
+			"isEmpty", isEmpty)
 
 		// Initialize map if needed
 		if targetSecret.Data == nil {
 			targetSecret.Data = map[string][]byte{}
 		}
 
-		// Copy credentials to the new secret
+		// Copy credentials to the existing secret
 		updateSecretData(targetSecret, zalandoSecret, service)
 
-		if err := r.Create(ctx, targetSecret); err != nil {
-			return fmt.Errorf("failed to create target secret: %w", err)
+		if err := r.Update(ctx, targetSecret); err != nil {
+			return fmt.Errorf("failed to update target secret: %w", err)
 		}
 	} else {
-		// Secret exists, check if it's empty or needs credentials copied
-		isEmpty := len(targetSecret.Data) == 0
-		hasCredentials := false
-
-		// Check if the secret already has the credentials
-		if _, ok := targetSecret.Data["DATABASE_USERNAME"]; ok {
-			if _, ok := targetSecret.Data["DATABASE_PASSWORD"]; ok {
-				hasCredentials = true
-			}
-		}
-
-		if isEmpty || !hasCredentials {
-			logger.Info("Target secret exists but needs credentials copied",
-				"target", service.Spec.KubernetesSecret,
-				"isEmpty", isEmpty)
-
-			// Initialize map if needed
-			if targetSecret.Data == nil {
-				targetSecret.Data = map[string][]byte{}
-			}
-
-			// Copy credentials to the existing secret
-			updateSecretData(targetSecret, zalandoSecret, service)
-
-			if err := r.Update(ctx, targetSecret); err != nil {
-				return fmt.Errorf("failed to update target secret: %w", err)
-			}
-		} else {
-			logger.Info("Target secret already has credentials, skipping copy",
-				"target", service.Spec.KubernetesSecret)
-		}
+		logger.Info("Target secret already has credentials, skipping copy",
+			"target", service.Spec.KubernetesSecret)
 	}
 
 	return nil
@@ -660,6 +630,7 @@ func updateSecretData(targetSecret *corev1.Secret, zalandoSecret *corev1.Secret,
 	if password, ok := zalandoSecret.Data["password"]; ok {
 		targetSecret.Data["DATABASE_PASSWORD"] = password
 	}
+	targetSecret.Data["DATABASE_URL"] = []byte(fmt.Sprintf("postgresql://%s:%s@%s:%d/postgres?sslmode=disable", targetSecret.Data["DATABASE_USERNAME"], targetSecret.Data["DATABASE_PASSWORD"], service.Name, 5432))
 }
 
 // Handle CRD-specific reconciliation
