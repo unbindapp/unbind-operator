@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
 	"time"
 
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
@@ -435,9 +436,11 @@ func (r *ServiceReconciler) reconcileDatabase(ctx context.Context, rb resourcebu
 	}
 
 	// Check and install required operator if needed
-	if err := r.OperatorManager.EnsureOperatorInstalled(ctx, logger, service.Spec.Config.Database.Type, controllerNamespace); err != nil {
-		logger.Error(err, "Failed to ensure operator is installed")
-		return err
+	if slices.Contains([]string{"mysql"}, service.Spec.Config.Database.Type) {
+		if err := r.OperatorManager.EnsureOperatorInstalled(ctx, logger, service.Spec.Config.Database.Type, controllerNamespace); err != nil {
+			logger.Error(err, "Failed to ensure operator is installed")
+			return err
+		}
 	}
 
 	// Handle database-specific secret creation
