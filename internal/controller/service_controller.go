@@ -511,7 +511,7 @@ func (r *ServiceReconciler) ensureRedisSecret(ctx context.Context, service *v1.S
 			// Update the secret with the password
 			secret.Data["DATABASE_USERNAME"] = []byte("default")
 			secret.Data["DATABASE_PASSWORD"] = []byte(password)
-			secret.Data["DATABASE_URL"] = []byte(fmt.Sprintf("redis://%s:%s@%s-headless:%d", "default", password, service.Name, 6379))
+			secret.Data["DATABASE_URL"] = []byte(fmt.Sprintf("redis://%s:%s@%s-headless.%s:%d", "default", password, service.Name, service.Namespace, 6379))
 
 			logger.Info("Updating existing Redis secret", "secretName", secretName)
 			if err := r.Update(ctx, secret); err != nil {
@@ -630,7 +630,7 @@ func updateSecretData(targetSecret *corev1.Secret, zalandoSecret *corev1.Secret,
 	if password, ok := zalandoSecret.Data["password"]; ok {
 		targetSecret.Data["DATABASE_PASSWORD"] = password
 	}
-	targetSecret.Data["DATABASE_URL"] = []byte(fmt.Sprintf("postgresql://%s:%s@%s:%d/postgres?sslmode=disable", targetSecret.Data["DATABASE_USERNAME"], targetSecret.Data["DATABASE_PASSWORD"], service.Name, 5432))
+	targetSecret.Data["DATABASE_URL"] = []byte(fmt.Sprintf("postgresql://%s:%s@%s.%s:%d/postgres?sslmode=disable", targetSecret.Data["DATABASE_USERNAME"], targetSecret.Data["DATABASE_PASSWORD"], service.Name, service.Namespace, 5432))
 }
 
 // Handle CRD-specific reconciliation
