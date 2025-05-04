@@ -454,13 +454,6 @@ func (r *ServiceReconciler) reconcileDatabase(ctx context.Context, rb resourcebu
 				return err
 			}
 		}
-	case "mysql":
-		if service.Spec.KubernetesSecret != "" {
-			if err := r.copyMySQLCredentials(ctx, &service); err != nil {
-				logger.Error(err, "Failed to copy MySQL credentials")
-				return err
-			}
-		}
 	}
 
 	// Get database def content from service spec
@@ -473,14 +466,6 @@ func (r *ServiceReconciler) reconcileDatabase(ctx context.Context, rb resourcebu
 	if err := r.reconcileRuntimeObjects(ctx, runtimeObjects, service); err != nil {
 		logger.Error(err, "Failed to reconcile runtime objects")
 		return err
-	}
-
-	// Check if we need to copy Zalando PostgreSQL credentials to a different Secret
-	if service.Spec.Config.Database.Type == "postgres" && service.Spec.KubernetesSecret != "" {
-		if err := r.copyPostgresCredentials(ctx, &service); err != nil {
-			logger.Error(err, "Failed to copy PostgreSQL credentials")
-			return err
-		}
 	}
 
 	return nil
@@ -562,6 +547,321 @@ func generateSecurePassword(length int) (string, error) {
 		return "", err
 	}
 	return base64.URLEncoding.EncodeToString(b)[:length], nil
+}
+
+// Handle CRD-specific reconciliation
+func (r *ServiceReconciler) reconcilePostgresql(ctx context.Context, postgres *postgresv1.Postgresql, owner *v1.Service) error {
+	logger := log.FromContext(ctx)
+	logger.Info("Reconciling Postgresql", "name", postgres.Name, "namespace", postgres.Namespace)
+
+	// Set controller reference
+	if err := controllerutil.SetControllerReference(owner, postgres, r.Scheme); err != nil {
+		return fmt.Errorf("setting controller reference: %w", err)
+	}
+
+	// Check if the resource exists
+	var existing postgresv1.Postgresql
+	err := r.Get(ctx, client.ObjectKey{Namespace: postgres.Namespace, Name: postgres.Name}, &existing)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// Create the resource
+			logger.Info("Creating Postgresql", "name", postgres.Name)
+			return r.Create(ctx, postgres)
+		}
+		return err
+	}
+
+	// Resource exists, check if it needs to be updated
+	if !reflect.DeepEqual(existing.Spec, postgres.Spec) {
+		// Update the resource
+		existing.Spec = postgres.Spec
+		logger.Info("Updating Postgresql", "name", postgres.Name)
+		if err := r.Update(ctx, &existing); err != nil {
+			return err
+		}
+	}
+
+	// If we have a target secret, try to copy credentials
+	if owner.Spec.KubernetesSecret != "" {
+		// Retry logic to wait for the cluster to be ready
+		retries := 0
+		for retries < 10 {
+			// Get the latest status
+			if err := r.Get(ctx, client.ObjectKey{Namespace: postgres.Namespace, Name: postgres.Name}, &existing); err != nil {
+				return fmt.Errorf("failed to get latest PostgreSQL status: %w", err)
+			}
+
+			if existing.Status.PostgresClusterStatus == "Running" {
+				if err := r.copyPostgresCredentials(ctx, owner); err != nil {
+					logger.Error(err, "Failed to copy PostgreSQL credentials")
+					return err
+				}
+				break // Successfully copied credentials, exit retry loop
+			}
+
+			retries++
+			logger.Info("PostgreSQL cluster not ready yet, retrying",
+				"status", existing.Status.PostgresClusterStatus,
+				"attempt", retries)
+			time.Sleep(2 * time.Second)
+		}
+
+		if retries >= 10 {
+			logger.Info("PostgreSQL cluster not ready after retries, will try again in next reconciliation",
+				"status", existing.Status.PostgresClusterStatus)
+		}
+	}
+
+	return nil
+}
+
+// copyPostgresCredentials copies credentials from Zalando PostgreSQL secret to the target secret
+func (r *ServiceReconciler) copyPostgresCredentials(ctx context.Context, service *v1.Service) error {
+	logger := log.FromContext(ctx)
+
+	// The Zalando operator creates secrets with a specific naming pattern
+	zalandoSecretName := fmt.Sprintf("postgres.%s.credentials.postgresql.acid.zalan.do", service.Name)
+	zalandoSecret := &corev1.Secret{}
+
+	// Retry logic to wait for the Zalando secret to be created
+	retries := 0
+	var err error
+	for retries < 10 {
+		err = r.Get(ctx, types.NamespacedName{
+			Namespace: service.Namespace,
+			Name:      zalandoSecretName,
+		}, zalandoSecret)
+
+		if err == nil {
+			break // Found the secret, exit the retry loop
+		}
+
+		if errors.IsNotFound(err) {
+			retries++
+			logger.Info("Zalando PostgreSQL secret not found yet, retrying",
+				"secret", zalandoSecretName,
+				"attempt", retries,
+				"target", service.Spec.KubernetesSecret)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		// Some other error occurred
+		return fmt.Errorf("failed to get Zalando PostgreSQL secret: %w", err)
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to get Zalando PostgreSQL secret after retries: %w", err)
+	}
+
+	// Check if the target secret already exists
+	targetSecret := &corev1.Secret{}
+	err = r.Get(ctx, types.NamespacedName{
+		Namespace: service.Namespace,
+		Name:      service.Spec.KubernetesSecret,
+	}, targetSecret)
+
+	if err != nil {
+		// no-op
+		return nil
+	}
+	// Secret exists, check if it's empty or needs credentials copied
+	isEmpty := len(targetSecret.Data) == 0
+	hasCredentials := false
+
+	// Check if the secret already has the credentials
+	if _, ok := targetSecret.Data["DATABASE_USERNAME"]; ok {
+		if _, ok := targetSecret.Data["DATABASE_PASSWORD"]; ok {
+			if _, ok := targetSecret.Data["DATABASE_URL"]; ok {
+				hasCredentials = true
+			}
+		}
+	}
+
+	if isEmpty || !hasCredentials {
+		logger.Info("Target secret exists but needs credentials copied",
+			"target", service.Spec.KubernetesSecret,
+			"isEmpty", isEmpty)
+
+		// Initialize map if needed
+		if targetSecret.Data == nil {
+			targetSecret.Data = map[string][]byte{}
+		}
+
+		// Copy credentials to the existing secret
+		updateSecretData(targetSecret, zalandoSecret, service)
+
+		if err := r.Update(ctx, targetSecret); err != nil {
+			return fmt.Errorf("failed to update target secret: %w", err)
+		}
+	} else {
+		logger.Info("Target secret already has credentials, skipping copy",
+			"target", service.Spec.KubernetesSecret)
+	}
+
+	return nil
+}
+
+// updateSecretData copies the required data from Zalando secret to target secret
+func updateSecretData(targetSecret *corev1.Secret, zalandoSecret *corev1.Secret, service *v1.Service) {
+	// Copy the credentials (username and password)
+	// Zalando PostgreSQL operator typically uses these keys
+	if username, ok := zalandoSecret.Data["username"]; ok {
+		targetSecret.Data["DATABASE_USERNAME"] = username
+	}
+	if password, ok := zalandoSecret.Data["password"]; ok {
+		targetSecret.Data["DATABASE_PASSWORD"] = password
+	}
+	targetSecret.Data["DATABASE_URL"] = []byte(fmt.Sprintf("postgresql://%s:%s@%s.%s:%d/postgres?sslmode=disable", targetSecret.Data["DATABASE_USERNAME"], targetSecret.Data["DATABASE_PASSWORD"], service.Name, service.Namespace, 5432))
+}
+
+// reconcileHelmRelease handles HelmRelease resources
+func (r *ServiceReconciler) reconcileHelmRelease(ctx context.Context, helmRelease *helmv2.HelmRelease, owner *v1.Service) error {
+	logger := log.FromContext(ctx)
+	logger.Info("Reconciling HelmRelease", "name", helmRelease.Name, "namespace", helmRelease.Namespace)
+
+	// Set controller reference
+	if err := controllerutil.SetControllerReference(owner, helmRelease, r.Scheme); err != nil {
+		return fmt.Errorf("setting controller reference: %w", err)
+	}
+
+	// Check if the resource exists
+	var existing helmv2.HelmRelease
+	err := r.Get(ctx, client.ObjectKey{Namespace: helmRelease.Namespace, Name: helmRelease.Name}, &existing)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// Create the resource
+			logger.Info("Creating HelmRelease", "name", helmRelease.Name)
+			return r.Create(ctx, helmRelease)
+		}
+		return err
+	}
+
+	// Resource exists, check if it needs to be updated
+	if !reflect.DeepEqual(existing.Spec, helmRelease.Spec) {
+		// Preserve status field
+		status := existing.Status.DeepCopy()
+
+		// Update the resource
+		existing.Spec = helmRelease.Spec
+		existing.Status = *status
+
+		logger.Info("Updating HelmRelease", "name", helmRelease.Name)
+		return r.Update(ctx, &existing)
+	}
+
+	return nil
+}
+
+// reconcileHelmRepository handles HelmRepository resources
+func (r *ServiceReconciler) reconcileHelmRepository(ctx context.Context, helmRepo *sourcev1.HelmRepository, owner *v1.Service) error {
+	logger := log.FromContext(ctx)
+	logger.Info("Reconciling HelmRepository", "name", helmRepo.Name, "namespace", helmRepo.Namespace)
+
+	// Set controller reference
+	if err := controllerutil.SetControllerReference(owner, helmRepo, r.Scheme); err != nil {
+		return fmt.Errorf("setting controller reference: %w", err)
+	}
+
+	// Check if the resource exists
+	var existing sourcev1.HelmRepository
+	err := r.Get(ctx, client.ObjectKey{Namespace: helmRepo.Namespace, Name: helmRepo.Name}, &existing)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// Create the resource
+			logger.Info("Creating HelmRepository", "name", helmRepo.Name)
+			return r.Create(ctx, helmRepo)
+		}
+		return err
+	}
+
+	// Resource exists, check if it needs to be updated
+	if !reflect.DeepEqual(existing.Spec, helmRepo.Spec) {
+		// Preserve status field
+		status := existing.Status.DeepCopy()
+
+		// Update the resource
+		existing.Spec = helmRepo.Spec
+		existing.Status = *status
+
+		logger.Info("Updating HelmRepository", "name", helmRepo.Name)
+		return r.Update(ctx, &existing)
+	}
+
+	return nil
+}
+
+// reconcileMySQLCluster handles MySqlCluster resources
+func (r *ServiceReconciler) reconcileMySQLCluster(ctx context.Context, mysqlcluster *mocov1beta2.MySQLCluster, owner *v1.Service) error {
+	logger := log.FromContext(ctx)
+	logger.Info("Reconciling MySQLCluster", "name", mysqlcluster.Name, "namespace", mysqlcluster.Namespace)
+
+	// Set controller reference
+	if err := controllerutil.SetControllerReference(owner, mysqlcluster, r.Scheme); err != nil {
+		return fmt.Errorf("setting controller reference: %w", err)
+	}
+
+	// Check if the resource exists
+	var existing mocov1beta2.MySQLCluster
+	err := r.Get(ctx, client.ObjectKey{Namespace: mysqlcluster.Namespace, Name: mysqlcluster.Name}, &existing)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// Create the resource
+			logger.Info("Creating MySQLCluster", "name", mysqlcluster.Name)
+			return r.Create(ctx, mysqlcluster)
+		}
+		return err
+	}
+
+	// Resource exists, check if it needs to be updated
+	if !reflect.DeepEqual(existing.Spec, mysqlcluster.Spec) {
+		// Update the resource
+		existing.Spec = mysqlcluster.Spec
+		logger.Info("Updating MySQLCluster", "name", mysqlcluster.Name)
+		if err := r.Update(ctx, &existing); err != nil {
+			return err
+		}
+	}
+
+	// If we have a target secret, try to copy credentials
+	if owner.Spec.KubernetesSecret != "" {
+		// Retry logic to wait for the cluster to be ready
+		retries := 0
+		for retries < 10 {
+			// Get the latest status
+			if err := r.Get(ctx, client.ObjectKey{Namespace: mysqlcluster.Namespace, Name: mysqlcluster.Name}, &existing); err != nil {
+				return fmt.Errorf("failed to get latest MySQL status: %w", err)
+			}
+
+			// Check if the cluster is ready by looking at its conditions
+			isReady := false
+			for _, condition := range existing.Status.Conditions {
+				if condition.Type == "Ready" && condition.Status == "True" {
+					isReady = true
+					break
+				}
+			}
+
+			if isReady {
+				if err := r.copyMySQLCredentials(ctx, owner); err != nil {
+					logger.Error(err, "Failed to copy MySQL credentials")
+					return err
+				}
+				break // Successfully copied credentials, exit retry loop
+			}
+
+			retries++
+			logger.Info("MySQL cluster not ready yet, retrying",
+				"attempt", retries)
+			time.Sleep(2 * time.Second)
+		}
+
+		if retries >= 10 {
+			logger.Info("MySQL cluster not ready after retries, will try again in next reconciliation")
+		}
+	}
+
+	return nil
 }
 
 // copyMySQLCredentials copies credentials from MOCO MySQL secret to the target secret
@@ -693,248 +993,6 @@ func updateMySQLSecretData(targetSecret *corev1.Secret, mocoSecret *corev1.Secre
 		service.Name,
 		service.Namespace,
 		3306))
-}
-
-// copyPostgresCredentials copies credentials from Zalando PostgreSQL secret to the target secret
-func (r *ServiceReconciler) copyPostgresCredentials(ctx context.Context, service *v1.Service) error {
-	logger := log.FromContext(ctx)
-
-	// The Zalando operator creates secrets with a specific naming pattern
-	zalandoSecretName := fmt.Sprintf("postgres.%s.credentials.postgresql.acid.zalan.do", service.Name)
-	zalandoSecret := &corev1.Secret{}
-
-	// Retry logic to wait for the Zalando secret to be created
-	retries := 0
-	var err error
-	for retries < 10 {
-		err = r.Get(ctx, types.NamespacedName{
-			Namespace: service.Namespace,
-			Name:      zalandoSecretName,
-		}, zalandoSecret)
-
-		if err == nil {
-			break // Found the secret, exit the retry loop
-		}
-
-		if errors.IsNotFound(err) {
-			retries++
-			logger.Info("Zalando PostgreSQL secret not found yet, retrying",
-				"secret", zalandoSecretName,
-				"attempt", retries,
-				"target", service.Spec.KubernetesSecret)
-			time.Sleep(2 * time.Second)
-			continue
-		}
-
-		// Some other error occurred
-		return fmt.Errorf("failed to get Zalando PostgreSQL secret: %w", err)
-	}
-
-	if err != nil {
-		return fmt.Errorf("failed to get Zalando PostgreSQL secret after retries: %w", err)
-	}
-
-	// Check if the target secret already exists
-	targetSecret := &corev1.Secret{}
-	err = r.Get(ctx, types.NamespacedName{
-		Namespace: service.Namespace,
-		Name:      service.Spec.KubernetesSecret,
-	}, targetSecret)
-
-	if err != nil {
-		// no-op
-		return nil
-	}
-	// Secret exists, check if it's empty or needs credentials copied
-	isEmpty := len(targetSecret.Data) == 0
-	hasCredentials := false
-
-	// Check if the secret already has the credentials
-	if _, ok := targetSecret.Data["DATABASE_USERNAME"]; ok {
-		if _, ok := targetSecret.Data["DATABASE_PASSWORD"]; ok {
-			if _, ok := targetSecret.Data["DATABASE_URL"]; ok {
-				hasCredentials = true
-			}
-		}
-	}
-
-	if isEmpty || !hasCredentials {
-		logger.Info("Target secret exists but needs credentials copied",
-			"target", service.Spec.KubernetesSecret,
-			"isEmpty", isEmpty)
-
-		// Initialize map if needed
-		if targetSecret.Data == nil {
-			targetSecret.Data = map[string][]byte{}
-		}
-
-		// Copy credentials to the existing secret
-		updateSecretData(targetSecret, zalandoSecret, service)
-
-		if err := r.Update(ctx, targetSecret); err != nil {
-			return fmt.Errorf("failed to update target secret: %w", err)
-		}
-	} else {
-		logger.Info("Target secret already has credentials, skipping copy",
-			"target", service.Spec.KubernetesSecret)
-	}
-
-	return nil
-}
-
-// updateSecretData copies the required data from Zalando secret to target secret
-func updateSecretData(targetSecret *corev1.Secret, zalandoSecret *corev1.Secret, service *v1.Service) {
-	// Copy the credentials (username and password)
-	// Zalando PostgreSQL operator typically uses these keys
-	if username, ok := zalandoSecret.Data["username"]; ok {
-		targetSecret.Data["DATABASE_USERNAME"] = username
-	}
-	if password, ok := zalandoSecret.Data["password"]; ok {
-		targetSecret.Data["DATABASE_PASSWORD"] = password
-	}
-	targetSecret.Data["DATABASE_URL"] = []byte(fmt.Sprintf("postgresql://%s:%s@%s.%s:%d/postgres?sslmode=disable", targetSecret.Data["DATABASE_USERNAME"], targetSecret.Data["DATABASE_PASSWORD"], service.Name, service.Namespace, 5432))
-}
-
-// Handle CRD-specific reconciliation
-func (r *ServiceReconciler) reconcilePostgresql(ctx context.Context, postgres *postgresv1.Postgresql, owner *v1.Service) error {
-	logger := log.FromContext(ctx)
-	logger.Info("Reconciling Postgresql", "name", postgres.Name, "namespace", postgres.Namespace)
-
-	// Set controller reference
-	if err := controllerutil.SetControllerReference(owner, postgres, r.Scheme); err != nil {
-		return fmt.Errorf("setting controller reference: %w", err)
-	}
-
-	// Check if the resource exists
-	var existing postgresv1.Postgresql
-	err := r.Get(ctx, client.ObjectKey{Namespace: postgres.Namespace, Name: postgres.Name}, &existing)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			// Create the resource
-			logger.Info("Creating Postgresql", "name", postgres.Name)
-			return r.Create(ctx, postgres)
-		}
-		return err
-	}
-
-	// Resource exists, check if it needs to be updated
-	if !reflect.DeepEqual(existing.Spec, postgres.Spec) {
-		// Update the resource
-		existing.Spec = postgres.Spec
-		logger.Info("Updating Postgresql", "name", postgres.Name)
-		return r.Update(ctx, &existing)
-	}
-
-	return nil
-}
-
-// reconcileHelmRelease handles HelmRelease resources
-func (r *ServiceReconciler) reconcileHelmRelease(ctx context.Context, helmRelease *helmv2.HelmRelease, owner *v1.Service) error {
-	logger := log.FromContext(ctx)
-	logger.Info("Reconciling HelmRelease", "name", helmRelease.Name, "namespace", helmRelease.Namespace)
-
-	// Set controller reference
-	if err := controllerutil.SetControllerReference(owner, helmRelease, r.Scheme); err != nil {
-		return fmt.Errorf("setting controller reference: %w", err)
-	}
-
-	// Check if the resource exists
-	var existing helmv2.HelmRelease
-	err := r.Get(ctx, client.ObjectKey{Namespace: helmRelease.Namespace, Name: helmRelease.Name}, &existing)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			// Create the resource
-			logger.Info("Creating HelmRelease", "name", helmRelease.Name)
-			return r.Create(ctx, helmRelease)
-		}
-		return err
-	}
-
-	// Resource exists, check if it needs to be updated
-	if !reflect.DeepEqual(existing.Spec, helmRelease.Spec) {
-		// Preserve status field
-		status := existing.Status.DeepCopy()
-
-		// Update the resource
-		existing.Spec = helmRelease.Spec
-		existing.Status = *status
-
-		logger.Info("Updating HelmRelease", "name", helmRelease.Name)
-		return r.Update(ctx, &existing)
-	}
-
-	return nil
-}
-
-// reconcileHelmRepository handles HelmRepository resources
-func (r *ServiceReconciler) reconcileHelmRepository(ctx context.Context, helmRepo *sourcev1.HelmRepository, owner *v1.Service) error {
-	logger := log.FromContext(ctx)
-	logger.Info("Reconciling HelmRepository", "name", helmRepo.Name, "namespace", helmRepo.Namespace)
-
-	// Set controller reference
-	if err := controllerutil.SetControllerReference(owner, helmRepo, r.Scheme); err != nil {
-		return fmt.Errorf("setting controller reference: %w", err)
-	}
-
-	// Check if the resource exists
-	var existing sourcev1.HelmRepository
-	err := r.Get(ctx, client.ObjectKey{Namespace: helmRepo.Namespace, Name: helmRepo.Name}, &existing)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			// Create the resource
-			logger.Info("Creating HelmRepository", "name", helmRepo.Name)
-			return r.Create(ctx, helmRepo)
-		}
-		return err
-	}
-
-	// Resource exists, check if it needs to be updated
-	if !reflect.DeepEqual(existing.Spec, helmRepo.Spec) {
-		// Preserve status field
-		status := existing.Status.DeepCopy()
-
-		// Update the resource
-		existing.Spec = helmRepo.Spec
-		existing.Status = *status
-
-		logger.Info("Updating HelmRepository", "name", helmRepo.Name)
-		return r.Update(ctx, &existing)
-	}
-
-	return nil
-}
-
-// reconcileMySQLCluster handles MySqlCluster resources
-func (r *ServiceReconciler) reconcileMySQLCluster(ctx context.Context, mysqlcluster *mocov1beta2.MySQLCluster, owner *v1.Service) error {
-	logger := log.FromContext(ctx)
-	logger.Info("Reconciling MySQLCluster", "name", mysqlcluster.Name, "namespace", mysqlcluster.Namespace)
-
-	// Set controller reference
-	if err := controllerutil.SetControllerReference(owner, mysqlcluster, r.Scheme); err != nil {
-		return fmt.Errorf("setting controller reference: %w", err)
-	}
-
-	// Check if the resource exists
-	var existing mocov1beta2.MySQLCluster
-	err := r.Get(ctx, client.ObjectKey{Namespace: mysqlcluster.Namespace, Name: mysqlcluster.Name}, &existing)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			// Create the resource
-			logger.Info("Creating MySQLCluster", "name", mysqlcluster.Name)
-			return r.Create(ctx, mysqlcluster)
-		}
-		return err
-	}
-
-	// Resource exists, check if it needs to be updated
-	if !reflect.DeepEqual(existing.Spec, mysqlcluster.Spec) {
-		// Update the resource
-		existing.Spec = mysqlcluster.Spec
-		logger.Info("Updating MySQLCluster", "name", mysqlcluster.Name)
-		return r.Update(ctx, &existing)
-	}
-
-	return nil
 }
 
 // reconcileBackupPolicy handles BackupPolicy resources
