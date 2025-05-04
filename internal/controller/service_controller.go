@@ -24,6 +24,7 @@ import (
 	"os"
 	"reflect"
 	"slices"
+	"strings"
 	"time"
 
 	mocov1beta2 "github.com/cybozu-go/moco/api/v1beta2"
@@ -591,7 +592,7 @@ func (r *ServiceReconciler) reconcilePostgresql(ctx context.Context, postgres *p
 				return fmt.Errorf("failed to get latest PostgreSQL status: %w", err)
 			}
 
-			if existing.Status.PostgresClusterStatus == "Running" {
+			if strings.EqualFold(existing.Status.PostgresClusterStatus, "Running") {
 				if err := r.copyPostgresCredentials(ctx, owner); err != nil {
 					logger.Error(err, "Failed to copy PostgreSQL credentials")
 					return err
@@ -839,7 +840,7 @@ func (r *ServiceReconciler) reconcileMySQLCluster(ctx context.Context, mysqlclus
 			// Check if the cluster is ready by looking at its conditions
 			isReady := false
 			for _, condition := range existing.Status.Conditions {
-				if condition.Type == "Ready" && condition.Status == "True" {
+				if condition.Type == mocov1beta2.ConditionAvailable && condition.Status == metav1.ConditionTrue {
 					isReady = true
 					break
 				}
