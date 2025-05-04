@@ -24,7 +24,6 @@ import (
 	"os"
 	"reflect"
 	"slices"
-	"strings"
 	"time"
 
 	mocov1beta2 "github.com/cybozu-go/moco/api/v1beta2"
@@ -585,32 +584,9 @@ func (r *ServiceReconciler) reconcilePostgresql(ctx context.Context, postgres *p
 
 	// If we have a target secret, try to copy credentials
 	if owner.Spec.KubernetesSecret != "" {
-		// Retry logic to wait for the cluster to be ready
-		retries := 0
-		for retries < 10 {
-			// Get the latest status
-			if err := r.Get(ctx, client.ObjectKey{Namespace: postgres.Namespace, Name: postgres.Name}, &existing); err != nil {
-				return fmt.Errorf("failed to get latest PostgreSQL status: %w", err)
-			}
-
-			if strings.EqualFold(existing.Status.PostgresClusterStatus, "Running") {
-				if err := r.copyPostgresCredentials(ctx, owner); err != nil {
-					logger.Error(err, "Failed to copy PostgreSQL credentials")
-					return err
-				}
-				break // Successfully copied credentials, exit retry loop
-			}
-
-			retries++
-			logger.Info("PostgreSQL cluster not ready yet, retrying",
-				"status", existing.Status.PostgresClusterStatus,
-				"attempt", retries)
-			time.Sleep(2 * time.Second)
-		}
-
-		if retries >= 10 {
-			logger.Info("PostgreSQL cluster not ready after retries, will try again in next reconciliation",
-				"status", existing.Status.PostgresClusterStatus)
+		if err := r.copyPostgresCredentials(ctx, owner); err != nil {
+			logger.Error(err, "Failed to copy PostgreSQL credentials")
+			return err
 		}
 	}
 
@@ -830,39 +806,14 @@ func (r *ServiceReconciler) reconcileMySQLCluster(ctx context.Context, mysqlclus
 
 	// If we have a target secret, try to copy credentials
 	if owner.Spec.KubernetesSecret != "" {
-		// Retry logic to wait for the cluster to be ready
-		retries := 0
-		for retries < 10 {
-			// Get the latest status
-			if err := r.Get(ctx, client.ObjectKey{Namespace: mysqlcluster.Namespace, Name: mysqlcluster.Name}, &existing); err != nil {
-				return fmt.Errorf("failed to get latest MySQL status: %w", err)
-			}
-
-			// Check if the cluster is ready by looking at its conditions
-			isReady := false
-			for _, condition := range existing.Status.Conditions {
-				if condition.Type == mocov1beta2.ConditionAvailable && condition.Status == metav1.ConditionTrue {
-					isReady = true
-					break
-				}
-			}
-
-			if isReady {
-				if err := r.copyMySQLCredentials(ctx, owner); err != nil {
-					logger.Error(err, "Failed to copy MySQL credentials")
-					return err
-				}
-				break // Successfully copied credentials, exit retry loop
-			}
-
-			retries++
-			logger.Info("MySQL cluster not ready yet, retrying",
-				"attempt", retries)
-			time.Sleep(2 * time.Second)
+		// Get the latest status
+		if err := r.Get(ctx, client.ObjectKey{Namespace: mysqlcluster.Namespace, Name: mysqlcluster.Name}, &existing); err != nil {
+			return fmt.Errorf("failed to get latest MySQL status: %w", err)
 		}
 
-		if retries >= 10 {
-			logger.Info("MySQL cluster not ready after retries, will try again in next reconciliation")
+		if err := r.copyMySQLCredentials(ctx, owner); err != nil {
+			logger.Error(err, "Failed to copy MySQL credentials")
+			return err
 		}
 	}
 
