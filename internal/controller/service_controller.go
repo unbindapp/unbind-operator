@@ -664,6 +664,11 @@ func (r *ServiceReconciler) ensureMySQLSecret(ctx context.Context, service *v1.S
 			Type: corev1.SecretTypeOpaque,
 			Data: make(map[string][]byte),
 		}
+	} else {
+		// Secret exists, but ensure Data is initialized
+		if externalSecret.Data == nil {
+			externalSecret.Data = make(map[string][]byte)
+		}
 	}
 
 	// Copy credentials to external secret
