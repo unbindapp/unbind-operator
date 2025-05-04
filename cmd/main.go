@@ -41,6 +41,7 @@ import (
 	mocov1beta2 "github.com/cybozu-go/moco/api/v1beta2"
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	unbindv1 "github.com/unbindapp/unbind-operator/api/v1"
 	"github.com/unbindapp/unbind-operator/internal/controller"
 	"github.com/unbindapp/unbind-operator/internal/operator"
@@ -60,6 +61,7 @@ func init() {
 	utilruntime.Must(helmv2.AddToScheme(scheme))
 	utilruntime.Must(sourcev1.AddToScheme(scheme))
 	utilruntime.Must(mocov1beta2.AddToScheme(scheme))
+	utilruntime.Must(mdbv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 

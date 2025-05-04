@@ -29,6 +29,7 @@ import (
 	mocov1beta2 "github.com/cybozu-go/moco/api/v1beta2"
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	v1 "github.com/unbindapp/unbind-operator/api/v1"
 	"github.com/unbindapp/unbind-operator/internal/operator"
 	"github.com/unbindapp/unbind-operator/internal/resourcebuilder"
@@ -82,6 +83,7 @@ func (r *ServiceReconciler) newResourceBuilder(service *v1.Service) resourcebuil
 // +kubebuilder:rbac:groups=moco.cybozu.com,resources=backuppolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=batch,resources=jobs/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=mongodbcommunity.mongodb.com,resources=mongodbcommunities,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is the main reconciliation loop for the Service resource
 func (r *ServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -771,6 +773,7 @@ func (r *ServiceReconciler) reconcileHelmRepository(ctx context.Context, helmRep
 	return nil
 }
 
+// * MySQL / Moco
 // reconcileMySQLCluster handles MySqlCluster resources
 func (r *ServiceReconciler) reconcileMySQLCluster(ctx context.Context, mysqlcluster *mocov1beta2.MySQLCluster, owner *v1.Service) error {
 	// Always set serveridbase
@@ -984,6 +987,186 @@ func (r *ServiceReconciler) reconcileBackupPolicy(ctx context.Context, backupPol
 	return nil
 }
 
+// * MongoDB
+// reconcileMongoDBCommunity handles MongoDBCommunity resources
+func (r *ServiceReconciler) reconcileMongoDBCommunity(ctx context.Context, mongodbCommunity *mdbv1.MongoDBCommunity, owner *v1.Service) error {
+	logger := log.FromContext(ctx)
+	logger.Info("Reconciling MongoDBCommunity", "name", mongodbCommunity.Name, "namespace", mongodbCommunity.Namespace)
+
+	// Set controller reference
+	if err := controllerutil.SetControllerReference(owner, mongodbCommunity, r.Scheme); err != nil {
+		return fmt.Errorf("setting controller reference: %w", err)
+	}
+
+	// Check if the resource exists
+	var existing mdbv1.MongoDBCommunity
+	err := r.Get(ctx, client.ObjectKey{Namespace: mongodbCommunity.Namespace, Name: mongodbCommunity.Name}, &existing)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// Create the resource
+			logger.Info("Creating MongoDB", "name", mongodbCommunity.Name)
+			return r.Create(ctx, mongodbCommunity)
+		}
+		return err
+	}
+
+	// Resource exists, check if it needs to be updated
+	if !reflect.DeepEqual(existing.Spec, mongodbCommunity.Spec) {
+		// Update the resource
+		existing.Spec = mongodbCommunity.Spec
+		logger.Info("Updating MongoDB", "name", mongodbCommunity.Name)
+		if err := r.Update(ctx, &existing); err != nil {
+			return err
+		}
+	}
+
+	// If we have a target secret, try to copy credentials
+	if owner.Spec.KubernetesSecret != "" {
+		// Get the latest status
+		if err := r.Get(ctx, client.ObjectKey{Namespace: mongodbCommunity.Namespace, Name: mongodbCommunity.Name}, &existing); err != nil {
+			return fmt.Errorf("failed to get latest MongoDB status: %w", err)
+		}
+
+		if err := r.copyMongoDBCredentials(ctx, owner); err != nil {
+			logger.Error(err, "Failed to copy MongoDB credentials")
+			return err
+		}
+	}
+
+	return nil
+}
+
+// copyMySQLCredentials copies credentials from MOCO MySQL secret to the target secret
+func (r *ServiceReconciler) copyMongoDBCredentials(ctx context.Context, service *v1.Service) error {
+	logger := log.FromContext(ctx)
+
+	// The MOCO operator creates secrets with this naming pattern
+	mongoSecretName := fmt.Sprintf("%s-admin-admin", service.Name)
+	mongoSecret := &corev1.Secret{}
+
+	// Retry logic to wait for the Mongo secret to be created
+	retries := 0
+	var err error
+	for retries < 10 {
+		err = r.Get(ctx, types.NamespacedName{
+			Namespace: service.Namespace,
+			Name:      mongoSecretName,
+		}, mongoSecret)
+
+		if err == nil {
+			break // Found the secret, exit the retry loop
+		}
+
+		if errors.IsNotFound(err) {
+			retries++
+			logger.Info("Mongo MySQL secret not found yet, retrying",
+				"secret", mongoSecretName,
+				"attempt", retries,
+				"target", service.Spec.KubernetesSecret)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		// Some other error occurred
+		return fmt.Errorf("failed to get MongoDB secret: %w", err)
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to get MongoDB secret after retries: %w", err)
+	}
+
+	// Check if the target secret already exists
+	targetSecret := &corev1.Secret{}
+	err = r.Get(ctx, types.NamespacedName{
+		Namespace: service.Namespace,
+		Name:      service.Spec.KubernetesSecret,
+	}, targetSecret)
+
+	if err != nil {
+		if !errors.IsNotFound(err) {
+			return fmt.Errorf("failed to check if target secret exists: %w", err)
+		}
+
+		// Create the target secret if it doesn't exist
+		targetSecret = &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      service.Spec.KubernetesSecret,
+				Namespace: service.Namespace,
+			},
+			Type: corev1.SecretTypeOpaque,
+			Data: make(map[string][]byte),
+		}
+
+		// Copy credentials to the new secret
+		updateMongoDBSecretData(targetSecret, mongoSecret, service)
+
+		if err := r.Create(ctx, targetSecret); err != nil {
+			return fmt.Errorf("failed to create target secret: %w", err)
+		}
+
+		return nil
+	}
+
+	// Secret exists, check if it's empty or needs credentials copied
+	isEmpty := len(targetSecret.Data) == 0
+	hasCredentials := false
+
+	// Check if the secret already has the credentials
+	if _, ok := targetSecret.Data["DATABASE_USERNAME"]; ok {
+		if _, ok := targetSecret.Data["DATABASE_PASSWORD"]; ok {
+			if _, ok := targetSecret.Data["DATABASE_URL"]; ok {
+				hasCredentials = true
+			}
+		}
+	}
+
+	if isEmpty || !hasCredentials {
+		logger.Info("Target secret exists but needs credentials copied",
+			"target", service.Spec.KubernetesSecret,
+			"isEmpty", isEmpty)
+
+		// Initialize map if needed
+		if targetSecret.Data == nil {
+			targetSecret.Data = map[string][]byte{}
+		}
+
+		// Copy credentials to the existing secret
+		updateMongoDBSecretData(targetSecret, mongoSecret, service)
+
+		if err := r.Update(ctx, targetSecret); err != nil {
+			return fmt.Errorf("failed to update target secret: %w", err)
+		}
+	} else {
+		logger.Info("Target secret already has credentials, skipping copy",
+			"target", service.Spec.KubernetesSecret)
+	}
+
+	return nil
+}
+
+// updateMongoDBSecretData copies the required data from Mongo secret to target secret
+func updateMongoDBSecretData(targetSecret *corev1.Secret, mongoSecret *corev1.Secret, service *v1.Service) {
+	// Copy the credentials (username and password)
+	if username, ok := mongoSecret.Data["username"]; ok {
+		targetSecret.Data["DATABASE_USERNAME"] = username
+	}
+	if password, ok := mongoSecret.Data["password"]; ok {
+		targetSecret.Data["DATABASE_PASSWORD"] = password
+	}
+
+	// Get the username and password, defaulting if not found
+	username := string(targetSecret.Data["DATABASE_USERNAME"])
+	password := string(targetSecret.Data["DATABASE_PASSWORD"])
+
+	targetSecret.Data["DATABASE_URL"] = []byte(fmt.Sprintf("mongodb://%s:%s@%s.%s:%d/admin",
+		username,
+		password,
+		service.Name,
+		service.Namespace,
+		27017))
+}
+
+// * Generic reconciler
 // Update reconcileRuntimeObjects to handle typed CRDs
 func (r *ServiceReconciler) reconcileRuntimeObjects(ctx context.Context, objects []runtime.Object, service v1.Service) error {
 	logger := log.FromContext(ctx)
@@ -1014,6 +1197,11 @@ func (r *ServiceReconciler) reconcileRuntimeObjects(ctx context.Context, objects
 		case *mocov1beta2.BackupPolicy:
 			if err := r.reconcileBackupPolicy(ctx, typedObj, &service); err != nil {
 				return fmt.Errorf("reconciling BackupPolicy: %w", err)
+			}
+
+		case *mdbv1.MongoDBCommunity:
+			if err := r.reconcileMongoDBCommunity(ctx, typedObj, &service); err != nil {
+				return fmt.Errorf("reconciling MongoDBCommunity: %w", err)
 			}
 
 		default:

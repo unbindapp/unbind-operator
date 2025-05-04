@@ -77,6 +77,29 @@ func (m *OperatorManager) isOperatorInstalled(ctx context.Context, operatorType 
 		}
 		return false, nil
 
+	case "mongodb":
+		// Check for MongoDBCommunity CRD using discovery client
+		resources, err := m.discovery.ServerResourcesForGroupVersion("mongodbcommunity.mongodb.com/v1")
+		if err != nil {
+			// If the error is "not found", the CRD is not installed
+			if discovery.IsGroupDiscoveryFailedError(err) {
+				return false, nil
+			}
+			if errors.IsNotFound(err) {
+				return false, nil
+			}
+			// For other errors, we can't determine if the operator is installed
+			return false, fmt.Errorf("failed to check MongoDB operator installation: %w", err)
+		}
+
+		// Look for the MongoDBCommunity resource type
+		for _, r := range resources.APIResources {
+			if strings.EqualFold(r.Kind, "MongoDBCommunity") {
+				return true, nil
+			}
+		}
+		return false, nil
+
 	default:
 		return false, fmt.Errorf("unsupported operator type: %s", operatorType)
 	}
@@ -87,6 +110,8 @@ func (m *OperatorManager) installOperator(ctx context.Context, logger logr.Logge
 	switch operatorType {
 	case "mysql":
 		return m.installMySQLOperator(ctx, logger, namespace)
+	case "mongodb":
+		return m.installMongoDBOperator(ctx, logger, namespace)
 	default:
 		return fmt.Errorf("unsupported operator type: %s", operatorType)
 	}
@@ -160,6 +185,67 @@ func (m *OperatorManager) installMySQLOperator(ctx context.Context, logger logr.
 			},
 			Values: &apiextensionsv1.JSON{
 				Raw: []byte(`{"replicaCount": 1}`),
+			},
+		},
+	}
+
+	if err := m.client.Create(ctx, release); err != nil {
+		if !errors.IsAlreadyExists(err) {
+			return fmt.Errorf("failed to create HelmRelease: %w", err)
+		}
+		logger.Info("HelmRelease already exists", "name", release.Name, "namespace", namespace)
+	} else {
+		logger.Info("Created HelmRelease", "name", release.Name, "namespace", namespace)
+	}
+
+	return nil
+}
+
+// installMongoDBOperator installs the MongoDB operator using Helm
+func (m *OperatorManager) installMongoDBOperator(ctx context.Context, logger logr.Logger, namespace string) error {
+	// Create HelmRepository for MongoDB operator
+	repo := &sourcev1.HelmRepository{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "mongodb-operator",
+			Namespace: namespace,
+		},
+		Spec: sourcev1.HelmRepositorySpec{
+			URL: "https://mongodb.github.io/helm-charts",
+			Interval: metav1.Duration{
+				Duration: 3600000000000, // 1 hour
+			},
+		},
+	}
+
+	if err := m.client.Create(ctx, repo); err != nil {
+		if !errors.IsAlreadyExists(err) {
+			return fmt.Errorf("failed to create HelmRepository: %w", err)
+		}
+		logger.Info("HelmRepository already exists", "name", repo.Name, "namespace", namespace)
+	} else {
+		logger.Info("Created HelmRepository", "name", repo.Name, "namespace", namespace)
+	}
+
+	// Create HelmRelease for MongoDB operator
+	release := &helmv2.HelmRelease{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "mongodb-operator",
+			Namespace: namespace,
+		},
+		Spec: helmv2.HelmReleaseSpec{
+			Interval: metav1.Duration{
+				Duration: 3600000000000, // 1 hour
+			},
+			Chart: &helmv2.HelmChartTemplate{
+				Spec: helmv2.HelmChartTemplateSpec{
+					Chart:   "community-operator",
+					Version: "0.13.0",
+					SourceRef: helmv2.CrossNamespaceObjectReference{
+						Kind:      "HelmRepository",
+						Name:      "mongodb-operator",
+						Namespace: namespace,
+					},
+				},
 			},
 		},
 	}
