@@ -8,6 +8,7 @@ import (
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/discovery"
@@ -57,6 +58,9 @@ func (m *OperatorManager) isOperatorInstalled(ctx context.Context, operatorType 
 		if err != nil {
 			// If the error is "not found", the CRD is not installed
 			if discovery.IsGroupDiscoveryFailedError(err) {
+				return false, nil
+			}
+			if errors.IsNotFound(err) {
 				return false, nil
 			}
 			// For other errors, we can't determine if the operator is installed
