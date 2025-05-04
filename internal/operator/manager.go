@@ -8,6 +8,8 @@ import (
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	"github.com/go-logr/logr"
+	v1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -53,8 +55,8 @@ func (m *OperatorManager) EnsureOperatorInstalled(ctx context.Context, logger lo
 func (m *OperatorManager) isOperatorInstalled(ctx context.Context, operatorType string, namespace string) (bool, error) {
 	switch operatorType {
 	case "mysql":
-		// Check for MySQL InnoDBCluster CRD using discovery client
-		resources, err := m.discovery.ServerResourcesForGroupVersion("mysql.oracle.com/v2")
+		// Check for MOCO MySQLCluster CRD using discovery client
+		resources, err := m.discovery.ServerResourcesForGroupVersion("moco.cybozu.com/v1beta2")
 		if err != nil {
 			// If the error is "not found", the CRD is not installed
 			if discovery.IsGroupDiscoveryFailedError(err) {
@@ -64,12 +66,12 @@ func (m *OperatorManager) isOperatorInstalled(ctx context.Context, operatorType 
 				return false, nil
 			}
 			// For other errors, we can't determine if the operator is installed
-			return false, fmt.Errorf("failed to check MySQL operator installation: %w", err)
+			return false, fmt.Errorf("failed to check MOCO operator installation: %w", err)
 		}
 
-		// Look for the InnoDBCluster resource type
+		// Look for the MySQLCluster resource type
 		for _, r := range resources.APIResources {
-			if strings.EqualFold(r.Kind, "InnoDBCluster") {
+			if strings.EqualFold(r.Kind, "MySQLCluster") {
 				return true, nil
 			}
 		}
@@ -92,14 +94,14 @@ func (m *OperatorManager) installOperator(ctx context.Context, logger logr.Logge
 
 // installMySQLOperator installs the MySQL operator using Helm
 func (m *OperatorManager) installMySQLOperator(ctx context.Context, logger logr.Logger, namespace string) error {
-	// Create HelmRepository for MySQL operator
+	// Create HelmRepository for MOCO operator
 	repo := &sourcev1.HelmRepository{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "mysql-operator",
+			Name:      "moco-operator",
 			Namespace: namespace,
 		},
 		Spec: sourcev1.HelmRepositorySpec{
-			URL: "https://mysql.github.io/mysql-operator/",
+			URL: "https://cybozu-go.github.io/moco-charts/",
 			Interval: metav1.Duration{
 				Duration: 3600000000000, // 1 hour
 			},
@@ -107,13 +109,38 @@ func (m *OperatorManager) installMySQLOperator(ctx context.Context, logger logr.
 	}
 
 	if err := m.client.Create(ctx, repo); err != nil {
-		return fmt.Errorf("failed to create HelmRepository: %w", err)
+		if !errors.IsAlreadyExists(err) {
+			return fmt.Errorf("failed to create HelmRepository: %w", err)
+		}
+		logger.Info("HelmRepository already exists", "name", repo.Name, "namespace", namespace)
+	} else {
+		logger.Info("Created HelmRepository", "name", repo.Name, "namespace", namespace)
 	}
 
-	// Create HelmRelease for MySQL operator
+	// Create ConfigMap with MOCO values
+	valuesConfig := &v1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "moco-values",
+			Namespace: namespace,
+		},
+		Data: map[string]string{
+			"values.yaml": "replicaCount: 1",
+		},
+	}
+
+	if err := m.client.Create(ctx, valuesConfig); err != nil {
+		if !errors.IsAlreadyExists(err) {
+			return fmt.Errorf("failed to create ConfigMap: %w", err)
+		}
+		logger.Info("ConfigMap already exists", "name", valuesConfig.Name, "namespace", namespace)
+	} else {
+		logger.Info("Created ConfigMap", "name", valuesConfig.Name, "namespace", namespace)
+	}
+
+	// Create HelmRelease for MOCO operator
 	release := &helmv2.HelmRelease{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "mysql-operator",
+			Name:      "moco-operator",
 			Namespace: namespace,
 		},
 		Spec: helmv2.HelmReleaseSpec{
@@ -122,20 +149,28 @@ func (m *OperatorManager) installMySQLOperator(ctx context.Context, logger logr.
 			},
 			Chart: &helmv2.HelmChartTemplate{
 				Spec: helmv2.HelmChartTemplateSpec{
-					Chart:   "mysql-operator",
-					Version: "2.2.3",
+					Chart:   "moco",
+					Version: "0.16.0",
 					SourceRef: helmv2.CrossNamespaceObjectReference{
 						Kind:      "HelmRepository",
-						Name:      "mysql-operator",
+						Name:      "moco-operator",
 						Namespace: namespace,
 					},
 				},
+			},
+			Values: &apiextensionsv1.JSON{
+				Raw: []byte(`{"replicaCount": 1}`),
 			},
 		},
 	}
 
 	if err := m.client.Create(ctx, release); err != nil {
-		return fmt.Errorf("failed to create HelmRelease: %w", err)
+		if !errors.IsAlreadyExists(err) {
+			return fmt.Errorf("failed to create HelmRelease: %w", err)
+		}
+		logger.Info("HelmRelease already exists", "name", release.Name, "namespace", namespace)
+	} else {
+		logger.Info("Created HelmRelease", "name", release.Name, "namespace", namespace)
 	}
 
 	return nil

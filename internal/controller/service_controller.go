@@ -26,6 +26,7 @@ import (
 	"slices"
 	"time"
 
+	mocov1beta2 "github.com/cybozu-go/moco/api/v1beta2"
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	v1 "github.com/unbindapp/unbind-operator/api/v1"
@@ -76,7 +77,8 @@ func (r *ServiceReconciler) newResourceBuilder(service *v1.Service) resourcebuil
 // +kubebuilder:rbac:groups=source.toolkit.fluxcd.io,resources=helmrepositories,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=helm.toolkit.fluxcd.io,resources=helmreleases/status,verbs=get
 // +kubebuilder:rbac:groups=source.toolkit.fluxcd.io,resources=helmrepositories/status,verbs=get
-// +kubebuilder:rbac:groups=mysql.oracle.com,resources=innodbclusters,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=moco.cybozu.com,resources=mysqlclusters,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=moco.cybozu.com,resources=backuppolicies,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is the main reconciliation loop for the Service resource
 func (r *ServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -454,8 +456,8 @@ func (r *ServiceReconciler) reconcileDatabase(ctx context.Context, rb resourcebu
 		}
 	case "mysql":
 		if service.Spec.KubernetesSecret != "" {
-			if err := r.ensureMySQLSecret(ctx, &service); err != nil {
-				logger.Error(err, "Failed to ensure MySQL secret")
+			if err := r.copyMySQLCredentials(ctx, &service); err != nil {
+				logger.Error(err, "Failed to copy MySQL credentials")
 				return err
 			}
 		}
@@ -562,137 +564,135 @@ func generateSecurePassword(length int) (string, error) {
 	return base64.URLEncoding.EncodeToString(b)[:length], nil
 }
 
-// ensureMySQLSecret creates or updates a secret for MySQL with the required credentials
-func (r *ServiceReconciler) ensureMySQLSecret(ctx context.Context, service *v1.Service) error {
+// copyMySQLCredentials copies credentials from MOCO MySQL secret to the target secret
+func (r *ServiceReconciler) copyMySQLCredentials(ctx context.Context, service *v1.Service) error {
 	logger := log.FromContext(ctx)
-	operatorSecretName := fmt.Sprintf("mysql-%s", service.Name)
-	externalSecretName := service.Spec.KubernetesSecret
 
-	// Check if the operator-owned secret exists
-	operatorSecret := &corev1.Secret{}
-	err := r.Get(ctx, types.NamespacedName{
-		Namespace: service.Namespace,
-		Name:      operatorSecretName,
-	}, operatorSecret)
+	// The MOCO operator creates secrets with this naming pattern
+	mocoSecretName := fmt.Sprintf("%s-user-secret", service.Name)
+	mocoSecret := &corev1.Secret{}
 
-	if err != nil {
-		if !errors.IsNotFound(err) {
-			return fmt.Errorf("failed to check if MySQL operator secret exists: %w", err)
-		}
+	// Retry logic to wait for the MOCO secret to be created
+	retries := 0
+	var err error
+	for retries < 10 {
+		err = r.Get(ctx, types.NamespacedName{
+			Namespace: service.Namespace,
+			Name:      mocoSecretName,
+		}, mocoSecret)
 
-		// Secret doesn't exist, create a new one with generated password
-		password, err := generateSecurePassword(32)
-		if err != nil {
-			return fmt.Errorf("failed to generate MySQL password: %w", err)
+		if err == nil {
+			break // Found the secret, exit the retry loop
 		}
 
-		// Create a new operator-owned secret
-		newSecret := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      operatorSecretName,
-				Namespace: service.Namespace,
-			},
-			Type: corev1.SecretTypeOpaque,
-			Data: map[string][]byte{
-				"rootUser":     []byte("root"),
-				"rootPassword": []byte(password),
-				"rootHost":     []byte("%"),
-			},
+		if errors.IsNotFound(err) {
+			retries++
+			logger.Info("MOCO MySQL secret not found yet, retrying",
+				"secret", mocoSecretName,
+				"attempt", retries,
+				"target", service.Spec.KubernetesSecret)
+			time.Sleep(2 * time.Second)
+			continue
 		}
 
-		// Set the service as the owner of the secret
-		if err := controllerutil.SetControllerReference(service, newSecret, r.Scheme); err != nil {
-			return fmt.Errorf("failed to set controller reference: %w", err)
-		}
-
-		logger.Info("Creating new MySQL operator secret", "secretName", operatorSecretName)
-		if err := r.Create(ctx, newSecret); err != nil {
-			return fmt.Errorf("failed to create MySQL operator secret: %w", err)
-		}
-		operatorSecret = newSecret
-	} else {
-		// Secret exists, check if it has the required fields
-		needsUpdate := false
-		if operatorSecret.Data == nil {
-			operatorSecret.Data = make(map[string][]byte)
-			needsUpdate = true
-		}
-
-		// Check and set required fields
-		if _, ok := operatorSecret.Data["rootUser"]; !ok {
-			operatorSecret.Data["rootUser"] = []byte("root")
-			needsUpdate = true
-		}
-		if _, ok := operatorSecret.Data["rootPassword"]; !ok {
-			password, err := generateSecurePassword(32)
-			if err != nil {
-				return fmt.Errorf("failed to generate MySQL password: %w", err)
-			}
-			operatorSecret.Data["rootPassword"] = []byte(password)
-			needsUpdate = true
-		}
-		if _, ok := operatorSecret.Data["rootHost"]; !ok {
-			operatorSecret.Data["rootHost"] = []byte("%")
-			needsUpdate = true
-		}
-
-		if needsUpdate {
-			logger.Info("Updating existing MySQL operator secret", "secretName", operatorSecretName)
-			if err := r.Update(ctx, operatorSecret); err != nil {
-				return fmt.Errorf("failed to update MySQL operator secret: %w", err)
-			}
-		}
+		// Some other error occurred
+		return fmt.Errorf("failed to get MOCO MySQL secret: %w", err)
 	}
 
-	// Now copy credentials to the external secret
-	externalSecret := &corev1.Secret{}
+	if err != nil {
+		return fmt.Errorf("failed to get MOCO MySQL secret after retries: %w", err)
+	}
+
+	// Check if the target secret already exists
+	targetSecret := &corev1.Secret{}
 	err = r.Get(ctx, types.NamespacedName{
 		Namespace: service.Namespace,
-		Name:      externalSecretName,
-	}, externalSecret)
+		Name:      service.Spec.KubernetesSecret,
+	}, targetSecret)
 
 	if err != nil {
 		if !errors.IsNotFound(err) {
-			return fmt.Errorf("failed to check if external secret exists: %w", err)
+			return fmt.Errorf("failed to check if target secret exists: %w", err)
 		}
-		// External secret doesn't exist, create it
-		externalSecret = &corev1.Secret{
+
+		// Create the target secret if it doesn't exist
+		targetSecret = &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      externalSecretName,
+				Name:      service.Spec.KubernetesSecret,
 				Namespace: service.Namespace,
 			},
 			Type: corev1.SecretTypeOpaque,
 			Data: make(map[string][]byte),
 		}
-	} else {
-		// Secret exists, but ensure Data is initialized
-		if externalSecret.Data == nil {
-			externalSecret.Data = make(map[string][]byte)
+
+		// Copy credentials to the new secret
+		updateMySQLSecretData(targetSecret, mocoSecret, service)
+
+		if err := r.Create(ctx, targetSecret); err != nil {
+			return fmt.Errorf("failed to create target secret: %w", err)
+		}
+
+		return nil
+	}
+
+	// Secret exists, check if it's empty or needs credentials copied
+	isEmpty := len(targetSecret.Data) == 0
+	hasCredentials := false
+
+	// Check if the secret already has the credentials
+	if _, ok := targetSecret.Data["DATABASE_USERNAME"]; ok {
+		if _, ok := targetSecret.Data["DATABASE_PASSWORD"]; ok {
+			if _, ok := targetSecret.Data["DATABASE_URL"]; ok {
+				hasCredentials = true
+			}
 		}
 	}
 
-	// Copy credentials to external secret
-	externalSecret.Data["DATABASE_USERNAME"] = operatorSecret.Data["rootUser"]
-	externalSecret.Data["DATABASE_PASSWORD"] = operatorSecret.Data["rootPassword"]
-	externalSecret.Data["DATABASE_URL"] = []byte(fmt.Sprintf("mysql://%s:%s@%s.%s:%d/%s",
-		operatorSecret.Data["rootUser"],
-		operatorSecret.Data["rootPassword"],
-		service.Name,
-		service.Namespace,
-		3306,
-		"mysql"))
+	if isEmpty || !hasCredentials {
+		logger.Info("Target secret exists but needs credentials copied",
+			"target", service.Spec.KubernetesSecret,
+			"isEmpty", isEmpty)
 
-	if err := r.Create(ctx, externalSecret); err != nil {
-		if errors.IsAlreadyExists(err) {
-			if err := r.Update(ctx, externalSecret); err != nil {
-				return fmt.Errorf("failed to update external secret: %w", err)
-			}
-		} else {
-			return fmt.Errorf("failed to create external secret: %w", err)
+		// Initialize map if needed
+		if targetSecret.Data == nil {
+			targetSecret.Data = map[string][]byte{}
 		}
+
+		// Copy credentials to the existing secret
+		updateMySQLSecretData(targetSecret, mocoSecret, service)
+
+		if err := r.Update(ctx, targetSecret); err != nil {
+			return fmt.Errorf("failed to update target secret: %w", err)
+		}
+	} else {
+		logger.Info("Target secret already has credentials, skipping copy",
+			"target", service.Spec.KubernetesSecret)
 	}
 
 	return nil
+}
+
+// updateMySQLSecretData copies the required data from MOCO secret to target secret
+func updateMySQLSecretData(targetSecret *corev1.Secret, mocoSecret *corev1.Secret, service *v1.Service) {
+	// Copy the credentials (username and password)
+	// MOCO MySQL operator typically uses these keys
+	if username, ok := mocoSecret.Data["USERNAME"]; ok {
+		targetSecret.Data["DATABASE_USERNAME"] = username
+	}
+	if password, ok := mocoSecret.Data["PASSWORD"]; ok {
+		targetSecret.Data["DATABASE_PASSWORD"] = password
+	}
+
+	// Get the username and password, defaulting if not found
+	username := string(targetSecret.Data["DATABASE_USERNAME"])
+	password := string(targetSecret.Data["DATABASE_PASSWORD"])
+
+	targetSecret.Data["DATABASE_URL"] = []byte(fmt.Sprintf("mysql://%s:%s@%s.%s:%d/mysql",
+		username,
+		password,
+		service.Name,
+		service.Namespace,
+		3306))
 }
 
 // copyPostgresCredentials copies credentials from Zalando PostgreSQL secret to the target secret
@@ -904,6 +904,72 @@ func (r *ServiceReconciler) reconcileHelmRepository(ctx context.Context, helmRep
 	return nil
 }
 
+// reconcileMySQLCluster handles MySqlCluster resources
+func (r *ServiceReconciler) reconcileMySQLCluster(ctx context.Context, mysqlcluster *mocov1beta2.MySQLCluster, owner *v1.Service) error {
+	logger := log.FromContext(ctx)
+	logger.Info("Reconciling MySQLCluster", "name", mysqlcluster.Name, "namespace", mysqlcluster.Namespace)
+
+	// Set controller reference
+	if err := controllerutil.SetControllerReference(owner, mysqlcluster, r.Scheme); err != nil {
+		return fmt.Errorf("setting controller reference: %w", err)
+	}
+
+	// Check if the resource exists
+	var existing mocov1beta2.MySQLCluster
+	err := r.Get(ctx, client.ObjectKey{Namespace: mysqlcluster.Namespace, Name: mysqlcluster.Name}, &existing)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// Create the resource
+			logger.Info("Creating MySQLCluster", "name", mysqlcluster.Name)
+			return r.Create(ctx, mysqlcluster)
+		}
+		return err
+	}
+
+	// Resource exists, check if it needs to be updated
+	if !reflect.DeepEqual(existing.Spec, mysqlcluster.Spec) {
+		// Update the resource
+		existing.Spec = mysqlcluster.Spec
+		logger.Info("Updating MySQLCluster", "name", mysqlcluster.Name)
+		return r.Update(ctx, &existing)
+	}
+
+	return nil
+}
+
+// reconcileBackupPolicy handles BackupPolicy resources
+func (r *ServiceReconciler) reconcileBackupPolicy(ctx context.Context, backupPolicy *mocov1beta2.BackupPolicy, owner *v1.Service) error {
+	logger := log.FromContext(ctx)
+	logger.Info("Reconciling BackupPolicy", "name", backupPolicy.Name, "namespace", backupPolicy.Namespace)
+
+	// Set controller reference
+	if err := controllerutil.SetControllerReference(owner, backupPolicy, r.Scheme); err != nil {
+		return fmt.Errorf("setting controller reference: %w", err)
+	}
+
+	// Check if the resource exists
+	var existing mocov1beta2.BackupPolicy
+	err := r.Get(ctx, client.ObjectKey{Namespace: backupPolicy.Namespace, Name: backupPolicy.Name}, &existing)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// Create the resource
+			logger.Info("Creating BackupPolicy", "name", backupPolicy.Name)
+			return r.Create(ctx, backupPolicy)
+		}
+		return err
+	}
+
+	// Resource exists, check if it needs to be updated
+	if !reflect.DeepEqual(existing.Spec, backupPolicy.Spec) {
+		// Update the resource
+		existing.Spec = backupPolicy.Spec
+		logger.Info("Updating BackupPolicy", "name", backupPolicy.Name)
+		return r.Update(ctx, &existing)
+	}
+
+	return nil
+}
+
 // Update reconcileRuntimeObjects to handle typed CRDs
 func (r *ServiceReconciler) reconcileRuntimeObjects(ctx context.Context, objects []runtime.Object, service v1.Service) error {
 	logger := log.FromContext(ctx)
@@ -924,6 +990,16 @@ func (r *ServiceReconciler) reconcileRuntimeObjects(ctx context.Context, objects
 		case *sourcev1.HelmRepository:
 			if err := r.reconcileHelmRepository(ctx, typedObj, &service); err != nil {
 				return fmt.Errorf("reconciling HelmRepository: %w", err)
+			}
+
+		case *mocov1beta2.MySQLCluster:
+			if err := r.reconcileMySQLCluster(ctx, typedObj, &service); err != nil {
+				return fmt.Errorf("reconciling MySQLCluster: %w", err)
+			}
+
+		case *mocov1beta2.BackupPolicy:
+			if err := r.reconcileBackupPolicy(ctx, typedObj, &service); err != nil {
+				return fmt.Errorf("reconciling BackupPolicy: %w", err)
 			}
 
 		default:

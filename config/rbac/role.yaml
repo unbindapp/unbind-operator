@@ -62,9 +62,10 @@ rules:
   verbs:
   - get
 - apiGroups:
-  - mysql.oracle.com
+  - moco.cybozu.com
   resources:
-  - innodbclusters
+  - backuppolicies
+  - mysqlclusters
   verbs:
   - create
   - delete
