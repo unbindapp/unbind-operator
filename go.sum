@@ -258,6 +258,8 @@ github.com/unbindapp/unbind-api v0.0.0-20250422181127-1e7a55056605 h1:ed3stdX0mz
 github.com/unbindapp/unbind-api v0.0.0-20250422181127-1e7a55056605/go.mod h1:6dVmMXNFToiut8nXWy881aUAcoBZBjc65KGCHq3zOec=
 github.com/unbindapp/unbind-api v0.0.0-20250422191242-109a382d2a26 h1:nGr4N4RfRkdM5i8uHIGDuT2s/lj7WBpFC1P7dl4mGEw=
 github.com/unbindapp/unbind-api v0.0.0-20250422191242-109a382d2a26/go.mod h1:rR5U9UWTwak0hmlF9vGngXjWH82ZxpWdlu2ufu/tRsA=
+github.com/unbindapp/unbind-api v0.0.0-20250504164928-02cddd9fbcc7 h1:ODRuE25LC1x+fQ90hCQVeJcmfajYFLVNLKfCzsZDhRA=
+github.com/unbindapp/unbind-api v0.0.0-20250504164928-02cddd9fbcc7/go.mod h1:R1GMTGWAuwptHxaCdHniaZJ9/ZGs93BaSDx71joLfbw=
 github.com/valyala/bytebufferpool v1.0.0/go.mod h1:6bBcMArwyJ5K/AmCkWv1jt77kVWyCJ6HpOuEn7z0Csc=
 github.com/valyala/fasthttp v1.34.0/go.mod h1:epZA5N+7pY6ZaEKRmstzOuYJx9HI8DI1oaCGZpdH4h0=
 github.com/valyala/tcplisten v1.0.0/go.mod h1:T0xQ8SeCZGxckz9qRXTfG43PvQ/mcWh7FwZEA7Ioqkc=
