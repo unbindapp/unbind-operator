@@ -872,7 +872,7 @@ func (r *ServiceReconciler) copyMySQLCredentials(ctx context.Context, service *v
 	logger := log.FromContext(ctx)
 
 	// The MOCO operator creates secrets with this naming pattern
-	mocoSecretName := fmt.Sprintf("%s-user-secret", service.Name)
+	mocoSecretName := fmt.Sprintf("moco-%s", service.Name)
 	mocoSecret := &corev1.Secret{}
 
 	// Retry logic to wait for the MOCO secret to be created
@@ -979,10 +979,8 @@ func (r *ServiceReconciler) copyMySQLCredentials(ctx context.Context, service *v
 func updateMySQLSecretData(targetSecret *corev1.Secret, mocoSecret *corev1.Secret, service *v1.Service) {
 	// Copy the credentials (username and password)
 	// MOCO MySQL operator typically uses these keys
-	if username, ok := mocoSecret.Data["USERNAME"]; ok {
-		targetSecret.Data["DATABASE_USERNAME"] = username
-	}
-	if password, ok := mocoSecret.Data["PASSWORD"]; ok {
+	targetSecret.Data["DATABASE_USERNAME"] = []byte("moco-admin")
+	if password, ok := mocoSecret.Data["ADMIN_PASSWORD"]; ok {
 		targetSecret.Data["DATABASE_PASSWORD"] = password
 	}
 
@@ -990,7 +988,7 @@ func updateMySQLSecretData(targetSecret *corev1.Secret, mocoSecret *corev1.Secre
 	username := string(targetSecret.Data["DATABASE_USERNAME"])
 	password := string(targetSecret.Data["DATABASE_PASSWORD"])
 
-	targetSecret.Data["DATABASE_URL"] = []byte(fmt.Sprintf("mysql://%s:%s@%s.%s:%d/mysql",
+	targetSecret.Data["DATABASE_URL"] = []byte(fmt.Sprintf("mysql://%s:%s@moco-%s.%s:%d/mysql",
 		username,
 		password,
 		service.Name,
