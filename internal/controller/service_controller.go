@@ -932,8 +932,8 @@ func (r *ServiceReconciler) copyMySQLCredentials(ctx context.Context, service *v
 func updateMySQLSecretData(targetSecret *corev1.Secret, mocoSecret *corev1.Secret, service *v1.Service) {
 	// Copy the credentials (username and password)
 	// MOCO MySQL operator typically uses these keys
-	targetSecret.Data["DATABASE_USERNAME"] = []byte("moco-admin")
-	if password, ok := mocoSecret.Data["ADMIN_PASSWORD"]; ok {
+	targetSecret.Data["DATABASE_USERNAME"] = []byte("moco-writable")
+	if password, ok := mocoSecret.Data["WRITABLE_PASSWORD"]; ok {
 		targetSecret.Data["DATABASE_PASSWORD"] = password
 	}
 
