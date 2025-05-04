@@ -793,6 +793,9 @@ func (r *ServiceReconciler) reconcileHelmRepository(ctx context.Context, helmRep
 
 // reconcileMySQLCluster handles MySqlCluster resources
 func (r *ServiceReconciler) reconcileMySQLCluster(ctx context.Context, mysqlcluster *mocov1beta2.MySQLCluster, owner *v1.Service) error {
+	// Always set serveridbase
+	mysqlcluster.Spec.ServerIDBase = 100
+
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling MySQLCluster", "name", mysqlcluster.Name, "namespace", mysqlcluster.Namespace)
 
