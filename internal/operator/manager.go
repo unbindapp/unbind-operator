@@ -101,7 +101,7 @@ func (m *OperatorManager) installMySQLOperator(ctx context.Context, logger logr.
 			Namespace: namespace,
 		},
 		Spec: sourcev1.HelmRepositorySpec{
-			URL: "https://cybozu-go.github.io/moco-charts/",
+			URL: "https://cybozu-go.github.io/moco/",
 			Interval: metav1.Duration{
 				Duration: 3600000000000, // 1 hour
 			},
