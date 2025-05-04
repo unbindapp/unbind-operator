@@ -80,6 +80,8 @@ func (r *ServiceReconciler) newResourceBuilder(service *v1.Service) resourcebuil
 // +kubebuilder:rbac:groups=source.toolkit.fluxcd.io,resources=helmrepositories/status,verbs=get
 // +kubebuilder:rbac:groups=moco.cybozu.com,resources=mysqlclusters,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=moco.cybozu.com,resources=backuppolicies,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=batch,resources=jobs/status,verbs=get;update;patch
 
 // Reconcile is the main reconciliation loop for the Service resource
 func (r *ServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -941,7 +943,7 @@ func updateMySQLSecretData(targetSecret *corev1.Secret, mocoSecret *corev1.Secre
 	username := string(targetSecret.Data["DATABASE_USERNAME"])
 	password := string(targetSecret.Data["DATABASE_PASSWORD"])
 
-	targetSecret.Data["DATABASE_URL"] = []byte(fmt.Sprintf("mysql://%s:%s@moco-%s.%s:%d/mysql",
+	targetSecret.Data["DATABASE_URL"] = []byte(fmt.Sprintf("mysql://%s:%s@moco-%s.%s:%d/moco",
 		username,
 		password,
 		service.Name,
