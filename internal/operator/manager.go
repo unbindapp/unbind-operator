@@ -150,7 +150,7 @@ func (m *OperatorManager) installMySQLOperator(ctx context.Context, logger logr.
 			Chart: &helmv2.HelmChartTemplate{
 				Spec: helmv2.HelmChartTemplateSpec{
 					Chart:   "moco",
-					Version: "0.16.0",
+					Version: "0.15.1",
 					SourceRef: helmv2.CrossNamespaceObjectReference{
 						Kind:      "HelmRepository",
 						Name:      "moco-operator",
