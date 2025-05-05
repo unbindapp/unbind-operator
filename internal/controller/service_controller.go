@@ -443,7 +443,7 @@ func (r *ServiceReconciler) reconcileDatabase(ctx context.Context, rb resourcebu
 	}
 
 	// Check and install required operator if needed
-	if slices.Contains([]string{"mysql"}, service.Spec.Config.Database.Type) {
+	if slices.Contains([]string{"mysql", "mongodb"}, service.Spec.Config.Database.Type) {
 		if err := r.OperatorManager.EnsureOperatorInstalled(ctx, logger, service.Spec.Config.Database.Type, controllerNamespace); err != nil {
 			logger.Error(err, "Failed to ensure operator is installed")
 			return err
