@@ -993,11 +993,6 @@ func (r *ServiceReconciler) reconcileMongoDBCommunity(ctx context.Context, mongo
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling MongoDBCommunity", "name", mongodbCommunity.Name, "namespace", mongodbCommunity.Namespace)
 
-	// Set controller reference
-	if err := controllerutil.SetControllerReference(owner, mongodbCommunity, r.Scheme); err != nil {
-		return fmt.Errorf("setting controller reference: %w", err)
-	}
-
 	// Check if the resource exists
 	var existing mdbv1.MongoDBCommunity
 	err := r.Get(ctx, client.ObjectKey{Namespace: mongodbCommunity.Namespace, Name: mongodbCommunity.Name}, &existing)
