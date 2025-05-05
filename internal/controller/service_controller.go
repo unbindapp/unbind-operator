@@ -444,7 +444,12 @@ func (r *ServiceReconciler) reconcileDatabase(ctx context.Context, rb resourcebu
 
 	// Check and install required operator if needed
 	if slices.Contains([]string{"mysql", "mongodb"}, service.Spec.Config.Database.Type) {
-		if err := r.OperatorManager.EnsureOperatorInstalled(ctx, logger, service.Spec.Config.Database.Type, controllerNamespace); err != nil {
+		namespace := controllerNamespace
+		// MongoDB operator is scoped per namespace
+		if service.Spec.Config.Database.Type == "mongodb" {
+			namespace = service.Namespace
+		}
+		if err := r.OperatorManager.EnsureOperatorInstalled(ctx, logger, service.Spec.Config.Database.Type, namespace); err != nil {
 			logger.Error(err, "Failed to ensure operator is installed")
 			return err
 		}

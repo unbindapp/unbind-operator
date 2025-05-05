@@ -8,6 +8,7 @@ import (
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -77,27 +78,19 @@ func (m *OperatorManager) isOperatorInstalled(ctx context.Context, operatorType 
 		return false, nil
 
 	case "mongodb":
-		// Check for MongoDBCommunity CRD using discovery client
-		resources, err := m.discovery.ServerResourcesForGroupVersion("mongodbcommunity.mongodb.com/v1")
+		// Check for mongodb-database service account in the target namespace
+		sa := &corev1.ServiceAccount{}
+		err := m.client.Get(ctx, client.ObjectKey{
+			Name:      "mongodb-database",
+			Namespace: namespace,
+		}, sa)
 		if err != nil {
-			// If the error is "not found", the CRD is not installed
-			if discovery.IsGroupDiscoveryFailedError(err) {
-				return false, nil
-			}
 			if errors.IsNotFound(err) {
 				return false, nil
 			}
-			// For other errors, we can't determine if the operator is installed
 			return false, fmt.Errorf("failed to check MongoDB operator installation: %w", err)
 		}
-
-		// Look for the MongoDBCommunity resource type
-		for _, r := range resources.APIResources {
-			if strings.EqualFold(r.Kind, "MongoDBCommunity") {
-				return true, nil
-			}
-		}
-		return false, nil
+		return true, nil
 
 	default:
 		return false, fmt.Errorf("unsupported operator type: %s", operatorType)
@@ -227,7 +220,7 @@ func (m *OperatorManager) installMongoDBOperator(ctx context.Context, logger log
 				},
 			},
 			Values: &apiextensionsv1.JSON{
-				Raw: []byte(`{"operator": {"watchNamespace": "*"}}`),
+				Raw: []byte(`{}`),
 			},
 		},
 	}
