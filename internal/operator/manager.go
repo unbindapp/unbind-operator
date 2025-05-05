@@ -8,7 +8,6 @@ import (
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	"github.com/go-logr/logr"
-	v1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -142,26 +141,6 @@ func (m *OperatorManager) installMySQLOperator(ctx context.Context, logger logr.
 		logger.Info("Created HelmRepository", "name", repo.Name, "namespace", namespace)
 	}
 
-	// Create ConfigMap with MOCO values
-	valuesConfig := &v1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "moco-values",
-			Namespace: namespace,
-		},
-		Data: map[string]string{
-			"values.yaml": "replicaCount: 1",
-		},
-	}
-
-	if err := m.client.Create(ctx, valuesConfig); err != nil {
-		if !errors.IsAlreadyExists(err) {
-			return fmt.Errorf("failed to create ConfigMap: %w", err)
-		}
-		logger.Info("ConfigMap already exists", "name", valuesConfig.Name, "namespace", namespace)
-	} else {
-		logger.Info("Created ConfigMap", "name", valuesConfig.Name, "namespace", namespace)
-	}
-
 	// Create HelmRelease for MOCO operator
 	release := &helmv2.HelmRelease{
 		ObjectMeta: metav1.ObjectMeta{
@@ -246,6 +225,9 @@ func (m *OperatorManager) installMongoDBOperator(ctx context.Context, logger log
 						Namespace: namespace,
 					},
 				},
+			},
+			Values: &apiextensionsv1.JSON{
+				Raw: []byte(`{"operator": {"watchNamespace": "*"}}`),
 			},
 		},
 	}

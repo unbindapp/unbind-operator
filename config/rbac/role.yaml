@@ -98,7 +98,7 @@ rules:
 - apiGroups:
   - mongodbcommunity.mongodb.com
   resources:
-  - mongodbcommunities
+  - mongodbcommunity
   verbs:
   - create
   - delete
