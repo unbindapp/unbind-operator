@@ -1229,7 +1229,7 @@ func updateMongoDBSecretData(targetSecret *corev1.Secret, mongoSecret *corev1.Se
 	// - replicaSetName: rs0
 	// - replicaSetHostnames: true
 	// - service name format: <service-name>-mongodb-headless
-	targetSecret.Data["DATABASE_URL"] = []byte(fmt.Sprintf("mongodb://%s:%s@%s-headless.%s:27017/admin?replicaSet=rs0&ssl=false",
+	targetSecret.Data["DATABASE_URL"] = []byte(fmt.Sprintf("mongodb://%s:%s@%s-headless.%s:27017/admin?ssl=false",
 		"root",
 		password,
 		service.Name,
