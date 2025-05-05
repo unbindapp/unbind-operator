@@ -126,6 +126,10 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 		}
 	}
 
+	if strings.EqualFold(fetchedDb.Name, "mongodb") {
+		dbConfig["existingSecretName"] = fmt.Sprintf("%s-mongo-secret", rb.service.Spec.ServiceRef)
+	}
+
 	// Database backups
 	dbConfig["s3"] = make(map[string]interface{})
 	s3Map := dbConfig["s3"].(map[string]interface{})
