@@ -119,14 +119,14 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 
 	// Add kubernetes secret name if specified in the service
 	if rb.service.Spec.KubernetesSecret != "" {
-		switch strings.ToLower(fetchedDb.Name) {
+		switch strings.ToLower(rb.service.Spec.Config.Database.Type) {
 		case "redis":
 			dbConfig["secretName"] = rb.service.Spec.KubernetesSecret
 			dbConfig["secretKey"] = "DATABASE_PASSWORD"
 		}
 	}
 
-	if strings.EqualFold(fetchedDb.Name, "mongodb") {
+	if strings.EqualFold(rb.service.Spec.Config.Database.Type, "mongodb") {
 		dbConfig["existingSecretName"] = fmt.Sprintf("%s-mongo-secret", rb.service.Spec.ServiceRef)
 	}
 
