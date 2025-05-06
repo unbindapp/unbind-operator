@@ -153,7 +153,9 @@ type S3ConfigSpec struct {
 	Endpoint string `json:"endpoint"`
 	Region   string `json:"region"`
 	// secret name containing the credentials
-	SecretName string `json:"secretName"`
+	SecretName           string `json:"secretName"`
+	BackupSchedule       string `json:"backupSchedule"`
+	BackupRetentionCount int    `json:"backupRetentionCount"`
 }
 
 // +kubebuilder:object:root=true

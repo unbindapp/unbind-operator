@@ -140,6 +140,8 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 		s3Map["endpoint"] = rb.service.Spec.Config.Database.S3BackupConfig.Endpoint
 		s3Map["secretName"] = rb.service.Spec.Config.Database.S3BackupConfig.SecretName
 		s3Map["backupPrefix"] = rb.service.Spec.ServiceRef
+		s3Map["backupSchedule"] = rb.service.Spec.Config.Database.S3BackupConfig.BackupSchedule
+		s3Map["backupRetention"] = rb.service.Spec.Config.Database.S3BackupConfig.BackupRetentionCount
 	}
 
 	// Render the database definition
