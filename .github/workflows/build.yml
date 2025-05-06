@@ -67,11 +67,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to registry
+      - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKER_USER }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push image
         if: success()
@@ -82,7 +83,7 @@ jobs:
           provenance: false
           push: true
           file: ./Dockerfile
-          tags: unbindapp/unbind-operator:${{ needs.setup_env.outputs.branch_name }}-${{ env.GITHUB_RUN_ID }}-${{ matrix.arch }}
+          tags: ghcr.io/unbindapp/unbind-operator:${{ needs.setup_env.outputs.branch_name }}-${{ env.GITHUB_RUN_ID }}-${{ matrix.arch }}
 
   create_manifest:
     name: 📦 Create and Push Multi-Arch Manifest
@@ -91,27 +92,28 @@ jobs:
     env:
       GITHUB_RUN_ID: ${{ github.run_id }}
     steps:
-      - name: Login to registry
+      - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKER_USER }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create and push API manifest
         run: |
-          docker manifest create unbindapp/unbind-operator:${{ needs.setup_env.outputs.branch_name }}-${{ env.GITHUB_RUN_ID }} \
-            --amend unbindapp/unbind-operator:${{ needs.setup_env.outputs.branch_name }}-${{ env.GITHUB_RUN_ID }}-amd64 \
-            --amend unbindapp/unbind-operator:${{ needs.setup_env.outputs.branch_name }}-${{ env.GITHUB_RUN_ID }}-arm64
+          docker manifest create ghcr.io/unbindapp/unbind-operator:${{ needs.setup_env.outputs.branch_name }}-${{ env.GITHUB_RUN_ID }} \
+            --amend ghcr.io/unbindapp/unbind-operator:${{ needs.setup_env.outputs.branch_name }}-${{ env.GITHUB_RUN_ID }}-amd64 \
+            --amend ghcr.io/unbindapp/unbind-operator:${{ needs.setup_env.outputs.branch_name }}-${{ env.GITHUB_RUN_ID }}-arm64
 
-          docker manifest annotate --arch amd64 --os linux unbindapp/unbind-operator:${{ needs.setup_env.outputs.branch_name }}-${{ env.GITHUB_RUN_ID }} unbindapp/unbind-operator:${{ needs.setup_env.outputs.branch_name }}-${{ env.GITHUB_RUN_ID }}-amd64
-          docker manifest annotate --arch arm64 --os linux unbindapp/unbind-operator:${{ needs.setup_env.outputs.branch_name }}-${{ env.GITHUB_RUN_ID }} unbindapp/unbind-operator:${{ needs.setup_env.outputs.branch_name }}-${{ env.GITHUB_RUN_ID }}-arm64
+          docker manifest annotate --arch amd64 --os linux ghcr.io/unbindapp/unbind-operator:${{ needs.setup_env.outputs.branch_name }}-${{ env.GITHUB_RUN_ID }} ghcr.io/unbindapp/unbind-operator:${{ needs.setup_env.outputs.branch_name }}-${{ env.GITHUB_RUN_ID }}-amd64
+          docker manifest annotate --arch arm64 --os linux ghcr.io/unbindapp/unbind-operator:${{ needs.setup_env.outputs.branch_name }}-${{ env.GITHUB_RUN_ID }} ghcr.io/unbindapp/unbind-operator:${{ needs.setup_env.outputs.branch_name }}-${{ env.GITHUB_RUN_ID }}-arm64
 
-          docker manifest push unbindapp/unbind-operator:${{ needs.setup_env.outputs.branch_name }}-${{ env.GITHUB_RUN_ID }}
+          docker manifest push ghcr.io/unbindapp/unbind-operator:${{ needs.setup_env.outputs.branch_name }}-${{ env.GITHUB_RUN_ID }}
 
           # Also tag as latest
-          docker manifest create unbindapp/unbind-operator:latest \
-            --amend unbindapp/unbind-operator:${{ needs.setup_env.outputs.branch_name }}-${{ env.GITHUB_RUN_ID }}-arm64
+          docker manifest create ghcr.io/unbindapp/unbind-operator:latest \
+            --amend ghcr.io/unbindapp/unbind-operator:${{ needs.setup_env.outputs.branch_name }}-${{ env.GITHUB_RUN_ID }}-arm64
             
-          docker manifest annotate --arch arm64 --os linux unbindapp/unbind-operator:latest unbindapp/unbind-operator:${{ needs.setup_env.outputs.branch_name }}-${{ env.GITHUB_RUN_ID }}-arm64
+          docker manifest annotate --arch arm64 --os linux ghcr.io/unbindapp/unbind-operator:latest ghcr.io/unbindapp/unbind-operator:${{ needs.setup_env.outputs.branch_name }}-${{ env.GITHUB_RUN_ID }}-arm64
 
-          docker manifest push unbindapp/unbind-operator:latest
+          docker manifest push ghcr.io/unbindapp/unbind-operator:latest
