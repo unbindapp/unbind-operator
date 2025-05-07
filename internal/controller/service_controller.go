@@ -810,6 +810,7 @@ func updateSecretData(targetSecret *corev1.Secret, zalandoSecret *corev1.Secret,
 		targetSecret.Data["DATABASE_PASSWORD"] = password
 	}
 	targetSecret.Data["DATABASE_URL"] = []byte(fmt.Sprintf("postgresql://%s:%s@%s.%s:%d/postgres?sslmode=disable", targetSecret.Data["DATABASE_USERNAME"], targetSecret.Data["DATABASE_PASSWORD"], service.Name, service.Namespace, 5432))
+	targetSecret.Data["DATABASE_DEFAULT_DB_NAME"] = []byte("postgres")
 }
 
 // reconcileHelmRelease handles HelmRelease resources
@@ -1067,6 +1068,8 @@ func updateMySQLSecretData(targetSecret *corev1.Secret, mocoSecret *corev1.Secre
 		service.Name,
 		service.Namespace,
 		3306))
+
+	targetSecret.Data["DATABASE_DEFAULT_DB_NAME"] = []byte("moco")
 }
 
 // reconcileBackupPolicy handles BackupPolicy resources
@@ -1234,6 +1237,8 @@ func updateMongoDBSecretData(targetSecret *corev1.Secret, mongoSecret *corev1.Se
 		password,
 		service.Name,
 		service.Namespace))
+
+	targetSecret.Data["DATABASE_DEFAULT_DB_NAME"] = []byte("admin")
 }
 
 // * Generic reconciler
