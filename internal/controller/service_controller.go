@@ -34,6 +34,7 @@ import (
 	"github.com/unbindapp/unbind-operator/internal/resourcebuilder"
 	postgresv1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -1249,6 +1250,11 @@ func (r *ServiceReconciler) reconcileRuntimeObjects(ctx context.Context, objects
 	for _, obj := range objects {
 		// Handle typed CRDs specifically
 		switch typedObj := obj.(type) {
+		case *batchv1.Job:
+			if err := r.reconcileJob(ctx, typedObj, &service); err != nil {
+				return fmt.Errorf("reconciling Job: %w", err)
+			}
+
 		case *postgresv1.Postgresql:
 			if err := r.reconcilePostgresql(ctx, typedObj, &service); err != nil {
 				return fmt.Errorf("reconciling Postgresql: %w", err)
@@ -1572,6 +1578,67 @@ func removeNonComparedFields(obj map[string]interface{}) map[string]interface{} 
 	return result
 }
 
+// Add a specialized function to handle Jobs
+func (r *ServiceReconciler) reconcileJob(ctx context.Context, desiredJob *batchv1.Job, owner *v1.Service) error {
+	logger := log.FromContext(ctx)
+	logger.Info("Reconciling Job", "name", desiredJob.Name, "namespace", desiredJob.Namespace)
+
+	// Set controller reference
+	if err := controllerutil.SetControllerReference(owner, desiredJob, r.Scheme); err != nil {
+		return fmt.Errorf("setting controller reference: %w", err)
+	}
+
+	// Check if the resource exists
+	var existingJob batchv1.Job
+	err := r.Get(ctx, client.ObjectKey{Namespace: desiredJob.Namespace, Name: desiredJob.Name}, &existingJob)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// Create the Job if it doesn't exist
+			logger.Info("Creating Job", "name", desiredJob.Name)
+			return r.Create(ctx, desiredJob)
+		}
+		return err
+	}
+
+	// For Jobs, check if it's completed or failed
+	var jobComplete bool
+	for _, condition := range existingJob.Status.Conditions {
+		if (condition.Type == batchv1.JobComplete || condition.Type == batchv1.JobFailed) && condition.Status == corev1.ConditionTrue {
+			jobComplete = true
+			break
+		}
+	}
+
+	// If the job has a different spec and hasn't completed, delete and recreate it
+	if !jobComplete && !reflect.DeepEqual(existingJob.Spec.Template.Spec.Containers, desiredJob.Spec.Template.Spec.Containers) {
+		logger.Info("Deleting existing Job to recreate with new configuration", "name", existingJob.Name)
+
+		// Delete the existing Job
+		if err := r.Delete(ctx, &existingJob, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
+			return fmt.Errorf("deleting Job: %w", err)
+		}
+
+		// Wait for Job to be deleted
+		retries := 0
+		for retries < 10 {
+			err := r.Get(ctx, client.ObjectKey{Namespace: desiredJob.Namespace, Name: desiredJob.Name}, &existingJob)
+			if errors.IsNotFound(err) {
+				break
+			}
+			retries++
+			logger.Info("Waiting for Job to be deleted", "name", desiredJob.Name, "retry", retries)
+			time.Sleep(1 * time.Second)
+		}
+
+		// Create the new Job
+		logger.Info("Creating new Job with updated configuration", "name", desiredJob.Name)
+		return r.Create(ctx, desiredJob)
+	}
+
+	logger.Info("Job already exists and no update needed", "name", desiredJob.Name)
+	return nil
+}
+
 // updateObject updates the spec of an existing object with the desired values
 func (r *ServiceReconciler) updateObject(existing, desired runtime.Object) error {
 	// Handle unstructured objects (CRDs and unknown types)
@@ -1581,6 +1648,11 @@ func (r *ServiceReconciler) updateObject(existing, desired runtime.Object) error
 
 	// Handle known types
 	switch desiredTyped := desired.(type) {
+	case *batchv1.Job:
+		// Jobs have immutable fields, so we don't update them directly
+		// The reconcileJob function handles this special case
+		return nil
+
 	case *appsv1.Deployment:
 		existingTyped, ok := existing.(*appsv1.Deployment)
 		if !ok {
