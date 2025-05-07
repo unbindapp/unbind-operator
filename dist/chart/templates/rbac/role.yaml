@@ -10,7 +10,9 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - configmaps
   - persistentvolumeclaims
+  - secrets
   - services
   verbs:
   - create
@@ -23,13 +25,10 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - secrets
+  - serviceaccounts
   verbs:
-  - delete
   - get
   - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - acid.zalan.do
@@ -57,6 +56,26 @@ rules:
   - update
   - watch
 - apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - batch
+  resources:
+  - jobs/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - helm.toolkit.fluxcd.io
   resources:
   - helmreleases
@@ -74,6 +93,19 @@ rules:
   - helmreleases/status
   verbs:
   - get
+- apiGroups:
+  - moco.cybozu.com
+  resources:
+  - backuppolicies
+  - mysqlclusters
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
 - apiGroups:
   - networking.k8s.io
   resources:

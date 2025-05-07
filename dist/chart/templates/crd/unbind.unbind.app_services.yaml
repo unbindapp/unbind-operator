@@ -80,6 +80,10 @@ spec:
                       s3BackupConfig:
                         description: S3Config for backupps
                         properties:
+                          backupRetentionCount:
+                            type: integer
+                          backupSchedule:
+                            type: string
                           bucket:
                             type: string
                           endpoint:
@@ -90,6 +94,8 @@ spec:
                             description: secret name containing the credentials
                             type: string
                         required:
+                        - backupRetentionCount
+                        - backupSchedule
                         - bucket
                         - endpoint
                         - region
