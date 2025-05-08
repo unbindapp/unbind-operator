@@ -33,6 +33,14 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 		return nil, err
 	}
 
+	storage := dbConfig["storage"]
+	if storage == "" {
+		storage = "1Gi" // Default hardcoded
+	}
+
+	// Delete key since its not a real config
+	delete(dbConfig, "storage")
+
 	// Add labels to the database config
 	_, ok := dbConfig["labels"]
 	if !ok {
@@ -104,6 +112,9 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 
 	// Set namespace for extra resources
 	commonMap["namespace"] = rb.service.Namespace
+
+	// Set stroage
+	commonMap["storage"] = storage
 
 	// Set replica count from service config
 	var replicaCount int32 = 1 // Default replica count if pointer is nil or not specified
