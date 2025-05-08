@@ -539,6 +539,7 @@ func (r *ServiceReconciler) ensureRedisSecret(ctx context.Context, service *v1.S
 			secret.Data["DATABASE_PASSWORD"] = []byte(password)
 			secret.Data["DATABASE_URL"] = []byte(fmt.Sprintf("redis://%s:%s@%s-headless.%s:%d", "default", password, service.Name, service.Namespace, 6379))
 			secret.Data["DATABASE_PORT"] = []byte("6379")
+			secret.Data["DATABASE_HOST"] = []byte(fmt.Sprintf("%s-headless.%s", service.Name, service.Namespace))
 
 			logger.Info("Updating existing Redis secret", "secretName", secretName)
 			if err := r.Update(ctx, secret); err != nil {
@@ -814,6 +815,7 @@ func updateSecretData(targetSecret *corev1.Secret, zalandoSecret *corev1.Secret,
 	targetSecret.Data["DATABASE_URL"] = []byte(fmt.Sprintf("postgresql://%s:%s@%s.%s:%d/postgres?sslmode=disable", targetSecret.Data["DATABASE_USERNAME"], targetSecret.Data["DATABASE_PASSWORD"], service.Name, service.Namespace, 5432))
 	targetSecret.Data["DATABASE_DEFAULT_DB_NAME"] = []byte("postgres")
 	targetSecret.Data["DATABASE_PORT"] = []byte("5432")
+	targetSecret.Data["DATABASE_HOST"] = []byte(fmt.Sprintf("%s.%s", service.Name, service.Namespace))
 }
 
 // reconcileHelmRelease handles HelmRelease resources
@@ -1074,6 +1076,7 @@ func updateMySQLSecretData(targetSecret *corev1.Secret, mocoSecret *corev1.Secre
 
 	targetSecret.Data["DATABASE_DEFAULT_DB_NAME"] = []byte("moco")
 	targetSecret.Data["DATABASE_PORT"] = []byte("3306")
+	targetSecret.Data["DATABASE_HOST"] = []byte(fmt.Sprintf("moco-%s.%s", service.Name, service.Namespace))
 }
 
 // reconcileBackupPolicy handles BackupPolicy resources
@@ -1244,6 +1247,7 @@ func updateMongoDBSecretData(targetSecret *corev1.Secret, mongoSecret *corev1.Se
 
 	targetSecret.Data["DATABASE_DEFAULT_DB_NAME"] = []byte("admin")
 	targetSecret.Data["DATABASE_PORT"] = []byte("27017")
+	targetSecret.Data["DATABASE_HOST"] = []byte(fmt.Sprintf("%s.%s", service.Name, service.Namespace))
 }
 
 // * Generic reconciler
