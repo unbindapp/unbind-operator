@@ -50,6 +50,30 @@ func (rb *ResourceBuilder) BuildDeployment() (*appsv1.Deployment, error) {
 		// ReadinessProbe: rb.buildReadinessProbe(port),
 	}
 
+	// Add volume mounts if specified
+	var volumes []corev1.Volume
+	if len(rb.service.Spec.Config.Volumes) > 0 {
+		volumeMounts := make([]corev1.VolumeMount, len(rb.service.Spec.Config.Volumes))
+		volumes = make([]corev1.Volume, len(rb.service.Spec.Config.Volumes))
+
+		for i, vol := range rb.service.Spec.Config.Volumes {
+			volumeMounts[i] = corev1.VolumeMount{
+				Name:      vol.Name,
+				MountPath: vol.MountPath,
+			}
+			volumes[i] = corev1.Volume{
+				Name: vol.Name,
+				VolumeSource: corev1.VolumeSource{
+					PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+						ClaimName: vol.Name,
+					},
+				},
+			}
+		}
+
+		container.VolumeMounts = volumeMounts
+	}
+
 	// Handle run command if provided
 	if rb.service.Spec.Config.RunCommand != nil && *rb.service.Spec.Config.RunCommand != "" {
 		// Parse the RunCommand into command and args
@@ -88,6 +112,7 @@ func (rb *ResourceBuilder) BuildDeployment() (*appsv1.Deployment, error) {
 				Spec: corev1.PodSpec{
 					ImagePullSecrets: imagePullSecrets,
 					Containers:       []corev1.Container{container},
+					Volumes:          volumes,
 				},
 			},
 		},

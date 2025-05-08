@@ -107,6 +107,9 @@ type ServiceConfigSpec struct {
 
 	// Databases are custom resources to create
 	Database DatabaseSpec `json:"database"`
+
+	// Volumes are mounted inside of the container at specified paths
+	Volumes []VolumeSpec `json:"volumes,omitempty"`
 }
 
 // ServiceStatus defines the observed state of Service
@@ -129,6 +132,11 @@ type HostSpec struct {
 	Host string `json:"host"`
 	Path string `json:"path"`
 	Port *int32 `json:"port,omitempty" required:"false"`
+}
+
+type VolumeSpec struct {
+	Name      string `json:"name"`      // PVC name
+	MountPath string `json:"mountPath"` // Path to mount the volume
 }
 
 type PortSpec struct {
