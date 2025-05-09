@@ -22,6 +22,7 @@ func (rb *ResourceBuilder) BuildService() (*corev1.Service, error) {
 			protocol = *port.Protocol
 		}
 		ports[i] = corev1.ServicePort{
+			Name:       fmt.Sprintf("%s-%d-%s", rb.service.Spec.Name, port.Port, protocol),
 			Protocol:   protocol,
 			Port:       port.Port,
 			TargetPort: intstr.FromInt32(port.Port),
