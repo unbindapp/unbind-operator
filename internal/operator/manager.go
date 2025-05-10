@@ -233,7 +233,13 @@ func (m *OperatorManager) installClickHouseOperator(ctx context.Context, logger 
 							"repository": "altinity/clickhouse-operator",
 							"pullPolicy": "IfNotPresent"
 						},
-						"resources": {}
+						"resources": {},
+						"env": [
+							{
+								"name": "WATCH_NAMESPACES",
+								"value": ".*"
+							}
+						]
 					},
 					"metrics": {
 						"enabled": false
