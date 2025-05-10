@@ -2,6 +2,7 @@ package resourcebuilder
 
 import (
 	"fmt"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -76,15 +77,17 @@ func (rb *ResourceBuilder) BuildDeployment() (*appsv1.Deployment, error) {
 
 	// Handle run command if provided
 	if rb.service.Spec.Config.RunCommand != nil && *rb.service.Spec.Config.RunCommand != "" {
-		// Parse the RunCommand into command and args
-		// This uses a simple shell-like split, more complex parsing might be needed
-		parts := parseCommand(*rb.service.Spec.Config.RunCommand)
+		parsedCommand := parseCommand(*rb.service.Spec.Config.RunCommand)
 
-		if len(parts) > 0 {
-			container.Command = []string{parts[0]}
-
-			if len(parts) > 1 {
-				container.Args = parts[1:]
+		// If it's a shell command (detected shell operators)
+		if len(parsedCommand) >= 3 && parsedCommand[0] == "/bin/sh" && parsedCommand[1] == "-c" {
+			container.Command = parsedCommand
+			// No args needed as they're included in the shell command
+		} else if len(parsedCommand) > 0 {
+			// Regular command with args
+			container.Command = []string{parsedCommand[0]}
+			if len(parsedCommand) > 1 {
+				container.Args = parsedCommand[1:]
 			}
 		}
 	}
@@ -121,17 +124,52 @@ func (rb *ResourceBuilder) BuildDeployment() (*appsv1.Deployment, error) {
 	return deployment, nil
 }
 
-// parseCommand splits a command string into parts, respecting quotes
-// This is a simplified version and might need to be enhanced for more complex commands
+// parseCommand handles a command string and returns it in a form suitable for Kubernetes
+// It supports nested shell commands with quotes
 func parseCommand(cmd string) []string {
 	if cmd == "" {
 		return []string{}
 	}
 
-	// Simple case: split by spaces
-	// For more complex parsing that handles quotes and escapes correctly,
-	// you might want to use a more sophisticated approach
+	// Special case: detect if the command already starts with "sh -c" or "/bin/sh -c"
+	// to avoid wrapping an already shell-wrapped command
+	shellPrefixes := []string{"sh -c ", "/bin/sh -c ", "bash -c "}
+	isAlreadyShellCommand := false
 
+	for _, prefix := range shellPrefixes {
+		if strings.HasPrefix(cmd, prefix) {
+			isAlreadyShellCommand = true
+			break
+		}
+	}
+
+	// If it's already a shell command, parse it carefully preserving the shell command structure
+	if isAlreadyShellCommand {
+		// Find the first occurrence of -c and take everything after it as the shell argument
+		parts := strings.SplitN(cmd, " -c ", 2)
+		if len(parts) == 2 {
+			shellCmd := parts[0]
+			shellArg := strings.TrimSpace(parts[1])
+
+			// If the shell argument starts and ends with quotes, remove them
+			if (strings.HasPrefix(shellArg, "\"") && strings.HasSuffix(shellArg, "\"")) ||
+				(strings.HasPrefix(shellArg, "'") && strings.HasSuffix(shellArg, "'")) {
+				shellArg = shellArg[1 : len(shellArg)-1]
+			}
+
+			return []string{strings.TrimSpace(shellCmd), "-c", shellArg}
+		}
+	}
+
+	// Check if the command contains shell operators that need a shell
+	if strings.Contains(cmd, "&&") || strings.Contains(cmd, "||") ||
+		strings.Contains(cmd, "|") || strings.Contains(cmd, ">") ||
+		strings.Contains(cmd, "<") {
+		// Return a command that uses the shell to interpret the command string
+		return []string{"/bin/sh", "-c", cmd}
+	}
+
+	// For commands without shell operators, parse while respecting quotes
 	var result []string
 	var current string
 	var inQuotes bool
@@ -165,6 +203,11 @@ func parseCommand(cmd string) []string {
 	// Add the last part if there is one
 	if current != "" {
 		result = append(result, current)
+	}
+
+	// Remove any remaining quote characters from the arguments
+	for i, arg := range result {
+		result[i] = strings.Trim(arg, "'\"")
 	}
 
 	return result
