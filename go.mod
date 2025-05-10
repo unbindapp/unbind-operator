@@ -6,7 +6,10 @@ toolchain go1.24.1
 
 godebug default=go1.24
 
-replace github.com/google/cel-go => github.com/google/cel-go v0.22.1
+replace (
+	github.com/google/cel-go => github.com/google/cel-go v0.22.1
+	github.com/imdario/mergo => github.com/sunsingerus/mergo v0.0.0-20230507185449-fc6fffa94450
+)
 
 require (
 	github.com/altinity/clickhouse-operator v0.0.0-20250314140814-69d5e39807e1
