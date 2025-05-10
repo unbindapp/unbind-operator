@@ -466,6 +466,11 @@ func (r *ServiceReconciler) reconcileDatabase(ctx context.Context, rb resourcebu
 			logger.Error(err, "Failed to ensure MongoDB secret")
 			return err
 		}
+	case "clickhouse":
+		if err := r.ensureClickhouseSecret(ctx, &service); err != nil {
+			logger.Error(err, "Failed to ensure ClickHouse secret")
+			return err
+		}
 	}
 
 	// Get database def content from service spec
