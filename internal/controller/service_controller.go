@@ -26,6 +26,7 @@ import (
 	"slices"
 	"time"
 
+	altinityv1 "github.com/altinity/clickhouse-operator/pkg/apis/clickhouse.altinity.com/v1"
 	mocov1beta2 "github.com/cybozu-go/moco/api/v1beta2"
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
@@ -82,6 +83,7 @@ func (r *ServiceReconciler) newResourceBuilder(service *v1.Service) resourcebuil
 // +kubebuilder:rbac:groups=source.toolkit.fluxcd.io,resources=helmrepositories/status,verbs=get
 // +kubebuilder:rbac:groups=moco.cybozu.com,resources=mysqlclusters,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=moco.cybozu.com,resources=backuppolicies,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=clickhouse.altinity.com,resources=clickhouseinstallations,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=batch,resources=jobs/status,verbs=get;update;patch
 
@@ -443,7 +445,7 @@ func (r *ServiceReconciler) reconcileDatabase(ctx context.Context, rb resourcebu
 	}
 
 	// Check and install required operator if needed
-	if slices.Contains([]string{"mysql"}, service.Spec.Config.Database.Type) {
+	if slices.Contains([]string{"mysql", "clickhouse"}, service.Spec.Config.Database.Type) {
 		if err := r.OperatorManager.EnsureOperatorInstalled(ctx, logger, service.Spec.Config.Database.Type, controllerNamespace); err != nil {
 			logger.Error(err, "Failed to ensure operator is installed")
 			return err
@@ -653,6 +655,117 @@ func (r *ServiceReconciler) ensureMongoDBSecret(ctx context.Context, service *v1
 			if service.Spec.KubernetesSecret != "" {
 				if err := r.copyMongoDBCredentials(ctx, service); err != nil {
 					logger.Error(err, "Failed to copy MongoDB credentials")
+					return err
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// ensureClickhouseSecret creates or updates a secret for Clickhouse with generated passwords
+func (r *ServiceReconciler) ensureClickhouseSecret(ctx context.Context, service *v1.Service) error {
+	logger := log.FromContext(ctx)
+	secretName := fmt.Sprintf("%s-clickhouse-secret", service.Spec.ServiceRef)
+
+	// Check if the secret already exists
+	secret := &corev1.Secret{}
+	err := r.Get(ctx, types.NamespacedName{
+		Namespace: service.Namespace,
+		Name:      secretName,
+	}, secret)
+
+	if err != nil {
+		if !errors.IsNotFound(err) {
+			return fmt.Errorf("failed to check if Mongo secret exists: %w", err)
+		}
+
+		// Generate passwords
+		defaultPassword, err := generateSecurePassword(32)
+		if err != nil {
+			return fmt.Errorf("failed to generate default password: %w", err)
+		}
+
+		backupPassword, err := generateSecurePassword(32)
+		if err != nil {
+			return fmt.Errorf("failed to generate backup password: %w", err)
+		}
+
+		// Create a new secret
+		newSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      secretName,
+				Namespace: service.Namespace,
+			},
+			Type: corev1.SecretTypeOpaque,
+			Data: map[string][]byte{
+				"password":        []byte(defaultPassword),
+				"backup-password": []byte(backupPassword),
+			},
+		}
+
+		// Set controller reference
+		if err := controllerutil.SetControllerReference(service, newSecret, r.Scheme); err != nil {
+			return fmt.Errorf("failed to set controller reference: %w", err)
+		}
+
+		logger.Info("Creating new Clickhouse secret", "secretName", secretName)
+		if err := r.Create(ctx, newSecret); err != nil {
+			return fmt.Errorf("failed to create Clickhouse secret: %w", err)
+		}
+
+		// If we have a target secret, copy the credentials
+		if service.Spec.KubernetesSecret != "" {
+			if err := r.copyClickhouseCredentials(ctx, service); err != nil {
+				logger.Error(err, "Failed to copy Clickhouse credentials")
+				return err
+			}
+		}
+	} else {
+		// Secret exists, check if it has the required keys
+		hasPassword := false
+		hasBackupPassword := false
+
+		if _, ok := secret.Data["password"]; ok {
+			hasPassword = true
+		}
+		if _, ok := secret.Data["backup-password"]; ok {
+			hasBackupPassword = true
+		}
+
+		if !hasPassword || !hasBackupPassword {
+			// Generate missing passwords
+			if !hasPassword {
+				defaultPassword, err := generateSecurePassword(32)
+				if err != nil {
+					return fmt.Errorf("failed to generate default password: %w", err)
+				}
+				secret.Data["password"] = []byte(defaultPassword)
+			}
+
+			if !hasBackupPassword {
+				backupPassword, err := generateSecurePassword(32)
+				if err != nil {
+					return fmt.Errorf("failed to generate backup password: %w", err)
+				}
+				secret.Data["backup-password"] = []byte(backupPassword)
+			}
+
+			// Ensure controller reference is set
+			if err := controllerutil.SetControllerReference(service, secret, r.Scheme); err != nil {
+				return fmt.Errorf("failed to set controller reference: %w", err)
+			}
+
+			logger.Info("Updating existing Clickhouse secret", "secretName", secretName)
+			if err := r.Update(ctx, secret); err != nil {
+				return fmt.Errorf("failed to update MongoDB secret: %w", err)
+			}
+
+			// If we have a target secret, copy the credentials
+			if service.Spec.KubernetesSecret != "" {
+				if err := r.copyClickhouseCredentials(ctx, service); err != nil {
+					logger.Error(err, "Failed to copy Clickhouse credentials")
 					return err
 				}
 			}
@@ -1250,6 +1363,189 @@ func updateMongoDBSecretData(targetSecret *corev1.Secret, mongoSecret *corev1.Se
 	targetSecret.Data["DATABASE_HOST"] = []byte(fmt.Sprintf("%s.%s", service.Name, service.Namespace))
 }
 
+// * Clickhouse
+// reconcileClickhouseInstallation handles ClickhouseInstallation resources
+func (r *ServiceReconciler) reconcileClickhouseInstallation(ctx context.Context, clickhouseInstalltion *altinityv1.ClickHouseInstallation, owner *v1.Service) error {
+
+	logger := log.FromContext(ctx)
+	logger.Info("Reconciling ClickHouseInstallation", "name", clickhouseInstalltion.Name, "namespace", clickhouseInstalltion.Namespace)
+
+	// Set controller reference
+	if err := controllerutil.SetControllerReference(owner, clickhouseInstalltion, r.Scheme); err != nil {
+		return fmt.Errorf("setting controller reference: %w", err)
+	}
+
+	// Check if the resource exists
+	var existing altinityv1.ClickHouseInstallation
+	err := r.Get(ctx, client.ObjectKey{Namespace: clickhouseInstalltion.Namespace, Name: clickhouseInstalltion.Name}, &existing)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// Create the resource
+			logger.Info("Creating ClickhouseInstallation", "name", clickhouseInstalltion.Name)
+			return r.Create(ctx, clickhouseInstalltion)
+		}
+		return err
+	}
+
+	// Resource exists, check if it needs to be updated
+	if !reflect.DeepEqual(existing.Spec, clickhouseInstalltion.Spec) {
+		// Update the resource
+		existing.Spec = clickhouseInstalltion.Spec
+		logger.Info("Updating ClickhouseInstallation", "name", clickhouseInstalltion.Name)
+		if err := r.Update(ctx, &existing); err != nil {
+			return err
+		}
+	}
+
+	// If we have a target secret, try to copy credentials
+	if owner.Spec.KubernetesSecret != "" {
+		// Get the latest status
+		if err := r.Get(ctx, client.ObjectKey{Namespace: clickhouseInstalltion.Namespace, Name: clickhouseInstalltion.Name}, &existing); err != nil {
+			return fmt.Errorf("failed to get latest Cllickhouse status: %w", err)
+		}
+
+		if err := r.copyClickhouseCredentials(ctx, owner); err != nil {
+			logger.Error(err, "Failed to copy Clickhouse credentials")
+			return err
+		}
+	}
+
+	return nil
+}
+
+// copyClickhouseCredentials copies credentials from Clickhouse secret to the target secret
+func (r *ServiceReconciler) copyClickhouseCredentials(ctx context.Context, service *v1.Service) error {
+	logger := log.FromContext(ctx)
+
+	// Get the Clickhouse secret
+	clickhouseSecretName := fmt.Sprintf("%s-clickhouse-secret", service.Spec.ServiceRef)
+	clickhouseSecret := &corev1.Secret{}
+
+	// Retry logic to wait for the Mongo secret to be created
+	retries := 0
+	var err error
+	for retries < 10 {
+		err = r.Get(ctx, types.NamespacedName{
+			Namespace: service.Namespace,
+			Name:      clickhouseSecretName,
+		}, clickhouseSecret)
+
+		if err == nil {
+			break // Found the secret, exit the retry loop
+		}
+
+		if errors.IsNotFound(err) {
+			retries++
+			logger.Info("Clickhouse secret not found yet, retrying",
+				"secret", clickhouseSecretName,
+				"attempt", retries,
+				"target", service.Spec.KubernetesSecret)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		// Some other error occurred
+		return fmt.Errorf("failed to get Clickhouse secret: %w", err)
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to get Clickhouse secret after retries: %w", err)
+	}
+
+	// Check if the target secret already exists
+	targetSecret := &corev1.Secret{}
+	err = r.Get(ctx, types.NamespacedName{
+		Namespace: service.Namespace,
+		Name:      service.Spec.KubernetesSecret,
+	}, targetSecret)
+
+	if err != nil {
+		if !errors.IsNotFound(err) {
+			return fmt.Errorf("failed to check if target secret exists: %w", err)
+		}
+
+		// Create the target secret if it doesn't exist
+		targetSecret = &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      service.Spec.KubernetesSecret,
+				Namespace: service.Namespace,
+			},
+			Type: corev1.SecretTypeOpaque,
+			Data: make(map[string][]byte),
+		}
+
+		// Copy credentials to the new secret
+		updatClickhouseSecretData(targetSecret, clickhouseSecret, service)
+
+		if err := r.Create(ctx, targetSecret); err != nil {
+			return fmt.Errorf("failed to create target secret: %w", err)
+		}
+
+		return nil
+	}
+
+	// Secret exists, check if it's empty or needs credentials copied
+	isEmpty := len(targetSecret.Data) == 0
+	hasCredentials := false
+
+	// Check if the secret already has the credentials
+	if _, ok := targetSecret.Data["DATABASE_USERNAME"]; ok {
+		if _, ok := targetSecret.Data["DATABASE_PASSWORD"]; ok {
+			if _, ok := targetSecret.Data["DATABASE_URL"]; ok {
+				hasCredentials = true
+			}
+		}
+	}
+
+	if isEmpty || !hasCredentials {
+		logger.Info("Target secret exists but needs credentials copied",
+			"target", service.Spec.KubernetesSecret,
+			"isEmpty", isEmpty)
+
+		// Initialize map if needed
+		if targetSecret.Data == nil {
+			targetSecret.Data = map[string][]byte{}
+		}
+
+		// Copy credentials to the existing secret
+		updatClickhouseSecretData(targetSecret, clickhouseSecret, service)
+
+		if err := r.Update(ctx, targetSecret); err != nil {
+			return fmt.Errorf("failed to update target secret: %w", err)
+		}
+	} else {
+		logger.Info("Target secret already has credentials, skipping copy",
+			"target", service.Spec.KubernetesSecret)
+	}
+
+	return nil
+}
+
+// updatClickhouseSecretData copies the required data from Clickhouse secret to target secret
+func updatClickhouseSecretData(targetSecret *corev1.Secret, clickhouseSecret *corev1.Secret, service *v1.Service) {
+	// Set username to root
+	targetSecret.Data["DATABASE_USERNAME"] = []byte("default")
+
+	// Copy password
+	if password, ok := clickhouseSecret.Data["password"]; ok {
+		targetSecret.Data["DATABASE_PASSWORD"] = password
+	}
+
+	// Get the password, defaulting if not found
+	password := string(targetSecret.Data["DATABASE_PASSWORD"])
+
+	// Construct Clickhouse URL
+
+	targetSecret.Data["DATABASE_URL"] = []byte(fmt.Sprintf("clickhouse://%s:%s@%s.%s:8123/default",
+		"default",
+		password,
+		service.Name,
+		service.Namespace))
+	targetSecret.Data["DATABASE_DEFAULT_DB_NAME"] = []byte("default")
+	targetSecret.Data["DATABASE_PORT"] = []byte("8123")
+	targetSecret.Data["DATABASE_HOST"] = []byte(fmt.Sprintf("%s.%s", service.Name, service.Namespace))
+}
+
 // * Generic reconciler
 // Update reconcileRuntimeObjects to handle typed CRDs
 func (r *ServiceReconciler) reconcileRuntimeObjects(ctx context.Context, objects []runtime.Object, service v1.Service) error {
@@ -1286,6 +1582,11 @@ func (r *ServiceReconciler) reconcileRuntimeObjects(ctx context.Context, objects
 		case *mocov1beta2.BackupPolicy:
 			if err := r.reconcileBackupPolicy(ctx, typedObj, &service); err != nil {
 				return fmt.Errorf("reconciling BackupPolicy: %w", err)
+			}
+
+		case *altinityv1.ClickHouseInstallation:
+			if err := r.reconcileClickhouseInstallation(ctx, typedObj, &service); err != nil {
+				return fmt.Errorf("reconciling ClickHouseInstallation: %w", err)
 			}
 
 		default:
