@@ -1546,8 +1546,14 @@ func updateClickhouseSecretData(targetSecret *corev1.Secret, clickhouseSecret *c
 		password,
 		service.Name,
 		service.Namespace))
+	targetSecret.Data["DATABASE_HTTP_URL"] = []byte(fmt.Sprintf("http://%s:%s@clickhouse-%s.%s:8123/default",
+		"default",
+		password,
+		service.Name,
+		service.Namespace))
 	targetSecret.Data["DATABASE_DEFAULT_DB_NAME"] = []byte("default")
 	targetSecret.Data["DATABASE_PORT"] = []byte("9000")
+	targetSecret.Data["DATABASE_HTTP_PORT"] = []byte("8123")
 	targetSecret.Data["DATABASE_HOST"] = []byte(fmt.Sprintf("clickhouse-%s.%s", service.Name, service.Namespace))
 }
 
