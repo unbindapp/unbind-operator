@@ -1480,7 +1480,7 @@ func (r *ServiceReconciler) copyClickhouseCredentials(ctx context.Context, servi
 		}
 
 		// Copy credentials to the new secret
-		updatClickhouseSecretData(targetSecret, clickhouseSecret, service)
+		updateClickhouseSecretData(targetSecret, clickhouseSecret, service)
 
 		if err := r.Create(ctx, targetSecret); err != nil {
 			return fmt.Errorf("failed to create target secret: %w", err)
@@ -1513,7 +1513,7 @@ func (r *ServiceReconciler) copyClickhouseCredentials(ctx context.Context, servi
 		}
 
 		// Copy credentials to the existing secret
-		updatClickhouseSecretData(targetSecret, clickhouseSecret, service)
+		updateClickhouseSecretData(targetSecret, clickhouseSecret, service)
 
 		if err := r.Update(ctx, targetSecret); err != nil {
 			return fmt.Errorf("failed to update target secret: %w", err)
@@ -1526,8 +1526,8 @@ func (r *ServiceReconciler) copyClickhouseCredentials(ctx context.Context, servi
 	return nil
 }
 
-// updatClickhouseSecretData copies the required data from Clickhouse secret to target secret
-func updatClickhouseSecretData(targetSecret *corev1.Secret, clickhouseSecret *corev1.Secret, service *v1.Service) {
+// updateClickhouseSecretData copies the required data from Clickhouse secret to target secret
+func updateClickhouseSecretData(targetSecret *corev1.Secret, clickhouseSecret *corev1.Secret, service *v1.Service) {
 	// Set username to root
 	targetSecret.Data["DATABASE_USERNAME"] = []byte("default")
 
@@ -1541,14 +1541,14 @@ func updatClickhouseSecretData(targetSecret *corev1.Secret, clickhouseSecret *co
 
 	// Construct Clickhouse URL
 
-	targetSecret.Data["DATABASE_URL"] = []byte(fmt.Sprintf("clickhouse://%s:%s@%s.%s:8123/default",
+	targetSecret.Data["DATABASE_URL"] = []byte(fmt.Sprintf("clickhouse://%s:%s@clickhouse-%s.%s:9000/default",
 		"default",
 		password,
 		service.Name,
 		service.Namespace))
 	targetSecret.Data["DATABASE_DEFAULT_DB_NAME"] = []byte("default")
-	targetSecret.Data["DATABASE_PORT"] = []byte("8123")
-	targetSecret.Data["DATABASE_HOST"] = []byte(fmt.Sprintf("%s.%s", service.Name, service.Namespace))
+	targetSecret.Data["DATABASE_PORT"] = []byte("9000")
+	targetSecret.Data["DATABASE_HOST"] = []byte(fmt.Sprintf("clickhouse-%s.%s", service.Name, service.Namespace))
 }
 
 // * Generic reconciler
