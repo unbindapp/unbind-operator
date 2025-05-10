@@ -47,6 +47,15 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 		dbConfig["labels"] = make(map[string]string)
 	}
 
+	if rb.service.Spec.Config.Database.Type == "clickhouse" {
+		// Clickhouse can't have a cluster name > 15 chars so make chi-{serviceref} truncated to 15
+		clusterName := fmt.Sprintf("chi-%s", rb.service.Spec.ServiceRef)
+		if len(clusterName) > 15 {
+			clusterName = clusterName[:15]
+		}
+		dbConfig["clusterName"] = clusterName
+	}
+
 	labelsMap, ok := dbConfig["labels"].(map[string]interface{})
 	if !ok {
 		// Try to convert to the expected format
