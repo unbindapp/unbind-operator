@@ -837,7 +837,7 @@ func (r *ServiceReconciler) reconcilePostgresql(ctx context.Context, postgres *p
 func (r *ServiceReconciler) getPGDefaultDatabaseName(service *v1.Service) string {
 	// Convert the database config to a map
 	dbConfig, _ := utils.RawExtensionToMap(service.Spec.Config.Database.Config)
-	name := "postgres"
+	name := "primarydb"
 	if dbConfig["defaultDatabaseName"] != nil && dbConfig["defaultDatabaseName"] != "" {
 		name, _ = dbConfig["defaultDatabaseName"].(string)
 		if name == "" {
