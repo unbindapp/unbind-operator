@@ -33,6 +33,7 @@ import (
 	v1 "github.com/unbindapp/unbind-operator/api/v1"
 	"github.com/unbindapp/unbind-operator/internal/operator"
 	"github.com/unbindapp/unbind-operator/internal/resourcebuilder"
+	"github.com/unbindapp/unbind-operator/internal/utils"
 	postgresv1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -833,12 +834,22 @@ func (r *ServiceReconciler) reconcilePostgresql(ctx context.Context, postgres *p
 	return nil
 }
 
+func (r *ServiceReconciler) getPGDefaultDatabaseName(service *v1.Service) string {
+	// Convert the database config to a map
+	dbConfig, _ := utils.RawExtensionToMap(service.Spec.Config.Database.Config)
+	name := "postgres"
+	if dbConfig["defaultDatabaseName"] != "" {
+		name = dbConfig["defaultDatabaseName"].(string)
+	}
+	return name
+}
+
 // copyPostgresCredentials copies credentials from Zalando PostgreSQL secret to the target secret
 func (r *ServiceReconciler) copyPostgresCredentials(ctx context.Context, service *v1.Service) error {
 	logger := log.FromContext(ctx)
 
 	// The Zalando operator creates secrets with a specific naming pattern
-	zalandoSecretName := fmt.Sprintf("postgres.%s.credentials.postgresql.acid.zalan.do", service.Name)
+	zalandoSecretName := fmt.Sprintf("%s.%s.credentials.postgresql.acid.zalan.do", r.getPGDefaultDatabaseName(service), service.Name)
 	zalandoSecret := &corev1.Secret{}
 
 	// Retry logic to wait for the Zalando secret to be created
@@ -907,7 +918,7 @@ func (r *ServiceReconciler) copyPostgresCredentials(ctx context.Context, service
 		}
 
 		// Copy credentials to the existing secret
-		updateSecretData(targetSecret, zalandoSecret, service)
+		updateSecretData(targetSecret, zalandoSecret, service, r.getPGDefaultDatabaseName(service))
 
 		if err := r.Update(ctx, targetSecret); err != nil {
 			return fmt.Errorf("failed to update target secret: %w", err)
@@ -921,7 +932,7 @@ func (r *ServiceReconciler) copyPostgresCredentials(ctx context.Context, service
 }
 
 // updateSecretData copies the required data from Zalando secret to target secret
-func updateSecretData(targetSecret *corev1.Secret, zalandoSecret *corev1.Secret, service *v1.Service) {
+func updateSecretData(targetSecret *corev1.Secret, zalandoSecret *corev1.Secret, service *v1.Service, dbName string) {
 	// Copy the credentials (username and password)
 	// Zalando PostgreSQL operator typically uses these keys
 	if username, ok := zalandoSecret.Data["username"]; ok {
@@ -930,8 +941,8 @@ func updateSecretData(targetSecret *corev1.Secret, zalandoSecret *corev1.Secret,
 	if password, ok := zalandoSecret.Data["password"]; ok {
 		targetSecret.Data["DATABASE_PASSWORD"] = password
 	}
-	targetSecret.Data["DATABASE_URL"] = []byte(fmt.Sprintf("postgresql://%s:%s@%s.%s:%d/postgres?sslmode=disable", targetSecret.Data["DATABASE_USERNAME"], targetSecret.Data["DATABASE_PASSWORD"], service.Name, service.Namespace, 5432))
-	targetSecret.Data["DATABASE_DEFAULT_DB_NAME"] = []byte("postgres")
+	targetSecret.Data["DATABASE_URL"] = []byte(fmt.Sprintf("postgresql://%s:%s@%s.%s:%d/%s?sslmode=disable", targetSecret.Data["DATABASE_USERNAME"], targetSecret.Data["DATABASE_PASSWORD"], service.Name, service.Namespace, 5432, dbName))
+	targetSecret.Data["DATABASE_DEFAULT_DB_NAME"] = []byte(dbName)
 	targetSecret.Data["DATABASE_PORT"] = []byte("5432")
 	targetSecret.Data["DATABASE_HOST"] = []byte(fmt.Sprintf("%s.%s", service.Name, service.Namespace))
 }

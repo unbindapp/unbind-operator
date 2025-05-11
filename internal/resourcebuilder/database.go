@@ -2,12 +2,12 @@ package resourcebuilder
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/unbindapp/unbind-api/pkg/databases"
+	"github.com/unbindapp/unbind-operator/internal/utils"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -27,7 +27,7 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 	}
 
 	// Convert the database config to a map
-	dbConfig, err := rawExtensionToMap(rb.service.Spec.Config.Database.Config)
+	dbConfig, err := utils.RawExtensionToMap(rb.service.Spec.Config.Database.Config)
 	if err != nil {
 		logger.Error(err, "Failed to convert database config to map")
 		return nil, err
@@ -213,21 +213,6 @@ func (rb *ResourceBuilder) processRenderedObjects(objects []runtime.Object, logg
 
 		// Add the processed object to the result
 		result = append(result, obj)
-	}
-
-	return result, nil
-}
-
-// Helper function to convert runtime.RawExtension to map[string]interface{}
-func rawExtensionToMap(raw runtime.RawExtension) (map[string]interface{}, error) {
-	if raw.Raw == nil {
-		return make(map[string]interface{}), nil
-	}
-
-	var result map[string]interface{}
-	err := json.Unmarshal(raw.Raw, &result)
-	if err != nil {
-		return nil, err
 	}
 
 	return result, nil
