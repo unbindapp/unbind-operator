@@ -12,7 +12,7 @@ import (
 
 type ResourceBuilderInterface interface {
 	BuildDeployment() (*appsv1.Deployment, error)
-	BuildService() (*corev1.Service, error)
+	BuildServices() ([]*corev1.Service, error)
 	BuildIngress() (*networkingv1.Ingress, error)
 	BuildDatabaseObjects(ctx context.Context, logger logr.Logger) ([]runtime.Object, error)
 }

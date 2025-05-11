@@ -140,6 +140,7 @@ type VolumeSpec struct {
 }
 
 type PortSpec struct {
+	NodePort *int32 `json:"nodePort,omitempty" required:"false"` // NodePort will create a NodePort service
 	// Port is the container port to expose
 	Port     int32            `json:"port"`
 	Protocol *corev1.Protocol `json:"protocol,omitempty" required:"false"`

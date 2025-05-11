@@ -131,6 +131,9 @@ spec:
                     description: Ports are the container ports to expose
                     items:
                       properties:
+                        nodePort:
+                          format: int32
+                          type: integer
                         port:
                           description: Port is the container port to expose
                           format: int32

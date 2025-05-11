@@ -145,7 +145,7 @@ func (r *ServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 
 		// Create or update the Service
-		if err := r.reconcileService(ctx, rb, service); err != nil {
+		if err := r.reconcileServices(ctx, rb, service); err != nil {
 			logger.Error(err, "Failed to reconcile Service")
 			return ctrl.Result{}, err
 		}
@@ -282,90 +282,162 @@ func (r *ServiceReconciler) reconcileDeployment(ctx context.Context, rb resource
 	return nil
 }
 
-// reconcileService ensures the Service exists and is configured correctly
-// or is deleted if not needed
-func (r *ServiceReconciler) reconcileService(ctx context.Context, rb resourcebuilder.ResourceBuilderInterface, service v1.Service) error {
+// reconcileServices ensures the Services exist and are configured correctly
+// or are deleted if not needed
+func (r *ServiceReconciler) reconcileServices(ctx context.Context, rb resourcebuilder.ResourceBuilderInterface, service v1.Service) error {
 	logger := log.FromContext(ctx)
 
-	// Check if service is needed
-	desired, err := rb.BuildService()
+	// Check if services are needed
+	desiredServices, err := rb.BuildServices()
 
-	// If the service is not needed (no port configured), delete any existing service
+	// If the services are not needed (no port configured), delete any existing services
 	if err == resourcebuilder.ErrServiceNotNeeded {
-		logger.Info("Service not needed, deleting if exists")
-		existingService := &corev1.Service{
+		logger.Info("Services not needed, deleting if exists")
+
+		// List of services to check for deletion
+		servicesToCheck := []string{
+			service.Name,               // Base service (ClusterIP)
+			service.Name + "-nodeport", // NodePort service
+		}
+
+		for _, svcName := range servicesToCheck {
+			existingService := &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      svcName,
+					Namespace: service.Namespace,
+				},
+			}
+
+			err := r.Get(ctx, types.NamespacedName{Name: svcName, Namespace: service.Namespace}, existingService)
+			if err != nil {
+				if errors.IsNotFound(err) {
+					logger.Info("Service already deleted or doesn't exist", "name", svcName)
+					continue
+				}
+				return fmt.Errorf("checking if service exists: %w", err)
+			}
+
+			logger.Info("Deleting service", "name", existingService.Name)
+			if err := r.Delete(ctx, existingService); err != nil {
+				return fmt.Errorf("deleting service: %w", err)
+			}
+		}
+
+		return nil
+	} else if err != nil {
+		logger.Error(err, "Failed to build services")
+		return fmt.Errorf("building services: %w", err)
+	}
+
+	// Track all service names we want to exist
+	desiredServiceNames := make(map[string]bool)
+
+	// Reconcile each desired service
+	for _, desired := range desiredServices {
+		desiredServiceNames[desired.Name] = true
+
+		// Service is needed, get existing or create new
+		var existing corev1.Service
+		err = r.Get(ctx, client.ObjectKey{Namespace: desired.Namespace, Name: desired.Name}, &existing)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				logger.Info("Creating service", "name", desired.Name, "type", desired.Spec.Type)
+				if err := controllerutil.SetControllerReference(&service, desired, r.Scheme); err != nil {
+					return fmt.Errorf("setting controller reference: %w", err)
+				}
+				if err := r.Create(ctx, desired); err != nil {
+					return fmt.Errorf("creating service %s: %w", desired.Name, err)
+				}
+				continue
+			}
+			return fmt.Errorf("getting service %s: %w", desired.Name, err)
+		}
+
+		// Copy ClusterIP which is immutable
+		desired.Spec.ClusterIP = existing.Spec.ClusterIP
+
+		// Also copy NodePorts if they are assigned and not explicitly specified
+		if desired.Spec.Type == corev1.ServiceTypeNodePort {
+			for i := range desired.Spec.Ports {
+				for j := range existing.Spec.Ports {
+					if desired.Spec.Ports[i].Port == existing.Spec.Ports[j].Port &&
+						desired.Spec.Ports[i].Name == existing.Spec.Ports[j].Name &&
+						desired.Spec.Ports[i].NodePort == 0 {
+						desired.Spec.Ports[i].NodePort = existing.Spec.Ports[j].NodePort
+					}
+				}
+			}
+		}
+
+		// Compare specs to determine if an update is needed
+		needsUpdate := false
+
+		// Compare ports
+		if !reflect.DeepEqual(existing.Spec.Ports, desired.Spec.Ports) {
+			needsUpdate = true
+			logger.Info("Service ports need update", "existing", existing.Spec.Ports, "desired", desired.Spec.Ports)
+		}
+
+		// Compare selector
+		if !reflect.DeepEqual(existing.Spec.Selector, desired.Spec.Selector) {
+			needsUpdate = true
+			logger.Info("Service selector needs update")
+		}
+
+		// Compare type
+		if existing.Spec.Type != desired.Spec.Type {
+			needsUpdate = true
+			logger.Info("Service type needs update", "from", existing.Spec.Type, "to", desired.Spec.Type)
+		}
+
+		// Only update if needed
+		if needsUpdate {
+			logger.Info("Updating service", "name", desired.Name)
+			existing.Spec = desired.Spec
+			if err := controllerutil.SetControllerReference(&service, &existing, r.Scheme); err != nil {
+				return fmt.Errorf("setting controller reference: %w", err)
+			}
+			if err := r.Update(ctx, &existing); err != nil {
+				return fmt.Errorf("updating service %s: %w", desired.Name, err)
+			}
+		} else {
+			logger.Info("Service already up to date", "name", desired.Name)
+		}
+	}
+
+	// Clean up any services that are no longer desired
+	servicesToCheck := []string{
+		service.Name,               // Base service (ClusterIP)
+		service.Name + "-nodeport", // NodePort service
+	}
+
+	for _, svcName := range servicesToCheck {
+		// Skip if this is a service we want to keep
+		if desiredServiceNames[svcName] {
+			continue
+		}
+
+		// Check if this service exists but is no longer needed
+		oldService := &corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      service.Name,
+				Name:      svcName,
 				Namespace: service.Namespace,
 			},
 		}
 
-		err := r.Get(ctx, types.NamespacedName{Name: existingService.Name, Namespace: existingService.Namespace}, existingService)
-		if err != nil {
-			if errors.IsNotFound(err) {
-				logger.Info("Service already deleted or doesn't exist")
-				return nil
+		err := r.Get(ctx, types.NamespacedName{Name: svcName, Namespace: service.Namespace}, oldService)
+		if err == nil {
+			// Service exists but is not desired, delete it
+			logger.Info("Deleting unneeded service", "name", svcName)
+			if err := r.Delete(ctx, oldService); err != nil {
+				return fmt.Errorf("deleting unneeded service %s: %w", svcName, err)
 			}
-			return fmt.Errorf("checking if service exists: %w", err)
+		} else if !errors.IsNotFound(err) {
+			// Unexpected error
+			return fmt.Errorf("checking if unneeded service %s exists: %w", svcName, err)
 		}
-
-		logger.Info("Deleting service", "name", existingService.Name)
-		if err := r.Delete(ctx, existingService); err != nil {
-			return fmt.Errorf("deleting service: %w", err)
-		}
-		return nil
-	} else if err != nil {
-		logger.Error(err, "Failed to build service")
-		return fmt.Errorf("building service: %w", err)
 	}
 
-	// Service is needed, get existing or create new
-	var existing corev1.Service
-	err = r.Get(ctx, client.ObjectKey{Namespace: desired.Namespace, Name: desired.Name}, &existing)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			logger.Info("Creating service", "name", desired.Name)
-			if err := controllerutil.SetControllerReference(&service, desired, r.Scheme); err != nil {
-				return fmt.Errorf("setting controller reference: %w", err)
-			}
-			return r.Create(ctx, desired)
-		}
-		return fmt.Errorf("getting service: %w", err)
-	}
-
-	// Copy ClusterIP which is immutable
-	desired.Spec.ClusterIP = existing.Spec.ClusterIP
-
-	// Compare specs to determine if an update is needed
-	// Only compare relevant fields to avoid unnecessary updates
-	needsUpdate := false
-
-	// Compare ports
-	if !reflect.DeepEqual(existing.Spec.Ports, desired.Spec.Ports) {
-		needsUpdate = true
-	}
-
-	// Compare selector
-	if !reflect.DeepEqual(existing.Spec.Selector, desired.Spec.Selector) {
-		needsUpdate = true
-	}
-
-	// Compare type
-	if existing.Spec.Type != desired.Spec.Type {
-		needsUpdate = true
-	}
-
-	// Only update if needed
-	if needsUpdate {
-		logger.Info("Updating service", "name", desired.Name)
-		existing.Spec = desired.Spec
-		if err := controllerutil.SetControllerReference(&service, &existing, r.Scheme); err != nil {
-			return fmt.Errorf("setting controller reference: %w", err)
-		}
-		return r.Update(ctx, &existing)
-	}
-
-	logger.Info("Service already up to date")
 	return nil
 }
 
