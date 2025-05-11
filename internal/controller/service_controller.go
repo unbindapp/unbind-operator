@@ -838,8 +838,11 @@ func (r *ServiceReconciler) getPGDefaultDatabaseName(service *v1.Service) string
 	// Convert the database config to a map
 	dbConfig, _ := utils.RawExtensionToMap(service.Spec.Config.Database.Config)
 	name := "postgres"
-	if dbConfig["defaultDatabaseName"] != "" {
-		name = dbConfig["defaultDatabaseName"].(string)
+	if dbConfig["defaultDatabaseName"] != nil && dbConfig["defaultDatabaseName"] != "" {
+		name, _ = dbConfig["defaultDatabaseName"].(string)
+		if name == "" {
+			name = "postgres"
+		}
 	}
 	return name
 }
