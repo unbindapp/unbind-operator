@@ -60,27 +60,53 @@ func (rb *ResourceBuilder) BuildDeployment() (*appsv1.Deployment, error) {
 
 	// Add volume mounts if specified
 	var volumes []corev1.Volume
-	if len(rb.service.Spec.Config.Volumes) > 0 {
-		volumeMounts := make([]corev1.VolumeMount, len(rb.service.Spec.Config.Volumes))
-		volumes = make([]corev1.Volume, len(rb.service.Spec.Config.Volumes))
+	volumeMounts := []corev1.VolumeMount{}
 
-		for i, vol := range rb.service.Spec.Config.Volumes {
-			volumeMounts[i] = corev1.VolumeMount{
+	// Handle regular volumes
+	if len(rb.service.Spec.Config.Volumes) > 0 {
+		for _, vol := range rb.service.Spec.Config.Volumes {
+			volumeMounts = append(volumeMounts, corev1.VolumeMount{
 				Name:      vol.Name,
 				MountPath: vol.MountPath,
-			}
-			volumes[i] = corev1.Volume{
+			})
+			volumes = append(volumes, corev1.Volume{
 				Name: vol.Name,
 				VolumeSource: corev1.VolumeSource{
 					PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
 						ClaimName: vol.Name,
 					},
 				},
-			}
+			})
 		}
-
-		container.VolumeMounts = volumeMounts
 	}
+
+	// Handle variable mounts
+	if len(rb.service.Spec.Config.VariableMounts) > 0 {
+		for i, vm := range rb.service.Spec.Config.VariableMounts {
+			volumeName := fmt.Sprintf("var-mount-%d", i)
+			volumeMounts = append(volumeMounts, corev1.VolumeMount{
+				Name:      volumeName,
+				MountPath: vm.Path,
+				SubPath:   vm.Name, // Use the variable name as the subpath
+			})
+			volumes = append(volumes, corev1.Volume{
+				Name: volumeName,
+				VolumeSource: corev1.VolumeSource{
+					Secret: &corev1.SecretVolumeSource{
+						SecretName: rb.service.Spec.KubernetesSecret,
+						Items: []corev1.KeyToPath{
+							{
+								Key:  vm.Name,
+								Path: vm.Name,
+							},
+						},
+					},
+				},
+			})
+		}
+	}
+
+	container.VolumeMounts = volumeMounts
 
 	// Handle run command if provided
 	if rb.service.Spec.Config.RunCommand != nil && *rb.service.Spec.Config.RunCommand != "" {

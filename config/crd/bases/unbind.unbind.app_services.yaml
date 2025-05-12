@@ -207,6 +207,20 @@ spec:
                   runCommand:
                     description: RunCommand is a custom run command
                     type: string
+                  variableMounts:
+                    description: VariableMounts are paths to mount variables (from
+                      secret ref)
+                    items:
+                      properties:
+                        name:
+                          type: string
+                        path:
+                          type: string
+                      required:
+                      - name
+                      - path
+                      type: object
+                    type: array
                   volumes:
                     description: Volumes are mounted inside of the container at specified
                       paths

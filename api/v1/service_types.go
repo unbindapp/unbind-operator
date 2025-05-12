@@ -116,6 +116,14 @@ type ServiceConfigSpec struct {
 
 	// HealthCheck defines a simplified health check that applies to all probe types
 	HealthCheck *HealthCheckSpec `json:"healthCheck,omitempty"`
+
+	// VariableMounts are paths to mount variables (from secret ref)
+	VariableMounts []VariableMountSpec `json:"variableMounts,omitempty"`
+}
+
+type VariableMountSpec struct {
+	Name string `json:"name"` // Variable Name
+	Path string `json:"path"` // Path to mount the variable
 }
 
 // ServiceStatus defines the observed state of Service
