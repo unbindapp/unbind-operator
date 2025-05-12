@@ -264,22 +264,42 @@ func (r *ServiceReconciler) reconcileDeployment(ctx context.Context, rb resource
 		return fmt.Errorf("building deployment: %w", err)
 	}
 
-	var existing appsv1.Deployment
-	err = r.Get(ctx, client.ObjectKey{Namespace: desired.Namespace, Name: desired.Name}, &existing)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			return r.Create(ctx, desired)
+	// Retry logic for handling "object has been modified" errors
+	maxRetries := 5
+	backoff := time.Second
+
+	for i := 0; i < maxRetries; i++ {
+		var existing appsv1.Deployment
+		err = r.Get(ctx, client.ObjectKey{Namespace: desired.Namespace, Name: desired.Name}, &existing)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				return r.Create(ctx, desired)
+			}
+			return err
 		}
-		return err
+
+		// Update if needed
+		if !reflect.DeepEqual(existing.Spec, desired.Spec) {
+			existing.Spec = desired.Spec
+			err = r.Update(ctx, &existing)
+			if err != nil {
+				if errors.IsConflict(err) {
+					// Object was modified, wait and retry
+					logger.Info("Deployment was modified, retrying update",
+						"name", desired.Name,
+						"attempt", i+1,
+						"maxRetries", maxRetries)
+					time.Sleep(backoff)
+					backoff *= 2 // Exponential backoff
+					continue
+				}
+				return fmt.Errorf("updating deployment: %w", err)
+			}
+		}
+		return nil
 	}
 
-	// Update if needed
-	if !reflect.DeepEqual(existing.Spec, desired.Spec) {
-		existing.Spec = desired.Spec
-		return r.Update(ctx, &existing)
-	}
-
-	return nil
+	return fmt.Errorf("failed to update deployment after %d retries", maxRetries)
 }
 
 // reconcileServices ensures the Services exist and are configured correctly
@@ -336,72 +356,94 @@ func (r *ServiceReconciler) reconcileServices(ctx context.Context, rb resourcebu
 	for _, desired := range desiredServices {
 		desiredServiceNames[desired.Name] = true
 
-		// Service is needed, get existing or create new
-		var existing corev1.Service
-		err = r.Get(ctx, client.ObjectKey{Namespace: desired.Namespace, Name: desired.Name}, &existing)
-		if err != nil {
-			if errors.IsNotFound(err) {
-				logger.Info("Creating service", "name", desired.Name, "type", desired.Spec.Type)
-				if err := controllerutil.SetControllerReference(&service, desired, r.Scheme); err != nil {
-					return fmt.Errorf("setting controller reference: %w", err)
+		// Retry logic for handling "object has been modified" errors
+		maxRetries := 5
+		backoff := time.Second
+
+		for i := 0; i < maxRetries; i++ {
+			// Service is needed, get existing or create new
+			var existing corev1.Service
+			err = r.Get(ctx, client.ObjectKey{Namespace: desired.Namespace, Name: desired.Name}, &existing)
+			if err != nil {
+				if errors.IsNotFound(err) {
+					logger.Info("Creating service", "name", desired.Name, "type", desired.Spec.Type)
+					if err := controllerutil.SetControllerReference(&service, desired, r.Scheme); err != nil {
+						return fmt.Errorf("setting controller reference: %w", err)
+					}
+					if err := r.Create(ctx, desired); err != nil {
+						return fmt.Errorf("creating service %s: %w", desired.Name, err)
+					}
+					break
 				}
-				if err := r.Create(ctx, desired); err != nil {
-					return fmt.Errorf("creating service %s: %w", desired.Name, err)
-				}
-				continue
+				return fmt.Errorf("getting service %s: %w", desired.Name, err)
 			}
-			return fmt.Errorf("getting service %s: %w", desired.Name, err)
-		}
 
-		// Copy ClusterIP which is immutable
-		desired.Spec.ClusterIP = existing.Spec.ClusterIP
+			// Copy ClusterIP which is immutable
+			desired.Spec.ClusterIP = existing.Spec.ClusterIP
 
-		// Also copy NodePorts if they are assigned and not explicitly specified
-		if desired.Spec.Type == corev1.ServiceTypeNodePort {
-			for i := range desired.Spec.Ports {
-				for j := range existing.Spec.Ports {
-					if desired.Spec.Ports[i].Port == existing.Spec.Ports[j].Port &&
-						desired.Spec.Ports[i].Name == existing.Spec.Ports[j].Name &&
-						desired.Spec.Ports[i].NodePort == 0 {
-						desired.Spec.Ports[i].NodePort = existing.Spec.Ports[j].NodePort
+			// Also copy NodePorts if they are assigned and not explicitly specified
+			if desired.Spec.Type == corev1.ServiceTypeNodePort {
+				for i := range desired.Spec.Ports {
+					for j := range existing.Spec.Ports {
+						if desired.Spec.Ports[i].Port == existing.Spec.Ports[j].Port &&
+							desired.Spec.Ports[i].Name == existing.Spec.Ports[j].Name &&
+							desired.Spec.Ports[i].NodePort == 0 {
+							desired.Spec.Ports[i].NodePort = existing.Spec.Ports[j].NodePort
+						}
 					}
 				}
 			}
-		}
 
-		// Compare specs to determine if an update is needed
-		needsUpdate := false
+			// Compare specs to determine if an update is needed
+			needsUpdate := false
 
-		// Compare ports
-		if !reflect.DeepEqual(existing.Spec.Ports, desired.Spec.Ports) {
-			needsUpdate = true
-			logger.Info("Service ports need update", "existing", existing.Spec.Ports, "desired", desired.Spec.Ports)
-		}
-
-		// Compare selector
-		if !reflect.DeepEqual(existing.Spec.Selector, desired.Spec.Selector) {
-			needsUpdate = true
-			logger.Info("Service selector needs update")
-		}
-
-		// Compare type
-		if existing.Spec.Type != desired.Spec.Type {
-			needsUpdate = true
-			logger.Info("Service type needs update", "from", existing.Spec.Type, "to", desired.Spec.Type)
-		}
-
-		// Only update if needed
-		if needsUpdate {
-			logger.Info("Updating service", "name", desired.Name)
-			existing.Spec = desired.Spec
-			if err := controllerutil.SetControllerReference(&service, &existing, r.Scheme); err != nil {
-				return fmt.Errorf("setting controller reference: %w", err)
+			// Compare ports
+			if !reflect.DeepEqual(existing.Spec.Ports, desired.Spec.Ports) {
+				needsUpdate = true
+				logger.Info("Service ports need update", "existing", existing.Spec.Ports, "desired", desired.Spec.Ports)
 			}
-			if err := r.Update(ctx, &existing); err != nil {
-				return fmt.Errorf("updating service %s: %w", desired.Name, err)
+
+			// Compare selector
+			if !reflect.DeepEqual(existing.Spec.Selector, desired.Spec.Selector) {
+				needsUpdate = true
+				logger.Info("Service selector needs update")
 			}
-		} else {
-			logger.Info("Service already up to date", "name", desired.Name)
+
+			// Compare type
+			if existing.Spec.Type != desired.Spec.Type {
+				needsUpdate = true
+				logger.Info("Service type needs update", "from", existing.Spec.Type, "to", desired.Spec.Type)
+			}
+
+			// Only update if needed
+			if needsUpdate {
+				logger.Info("Updating service", "name", desired.Name)
+				existing.Spec = desired.Spec
+				if err := controllerutil.SetControllerReference(&service, &existing, r.Scheme); err != nil {
+					return fmt.Errorf("setting controller reference: %w", err)
+				}
+				err = r.Update(ctx, &existing)
+				if err != nil {
+					if errors.IsConflict(err) {
+						// Object was modified, wait and retry
+						logger.Info("Service was modified, retrying update",
+							"name", desired.Name,
+							"attempt", i+1,
+							"maxRetries", maxRetries)
+						time.Sleep(backoff)
+						backoff *= 2 // Exponential backoff
+						continue
+					}
+					return fmt.Errorf("updating service %s: %w", desired.Name, err)
+				}
+			} else {
+				logger.Info("Service already up to date", "name", desired.Name)
+			}
+			break // Success, exit retry loop
+		}
+
+		if err != nil {
+			return fmt.Errorf("failed to update service %s after %d retries: %w", desired.Name, maxRetries, err)
 		}
 	}
 
@@ -478,32 +520,53 @@ func (r *ServiceReconciler) reconcileIngress(ctx context.Context, rb resourcebui
 		return fmt.Errorf("building ingress: %w", err)
 	}
 
-	// Ingress is needed, get existing or create new
-	var existing networkingv1.Ingress
-	err = r.Get(ctx, client.ObjectKey{Namespace: desired.Namespace, Name: desired.Name}, &existing)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			logger.Info("Creating ingress", "name", desired.Name)
-			if err := controllerutil.SetControllerReference(&service, desired, r.Scheme); err != nil {
+	// Retry logic for handling "object has been modified" errors
+	maxRetries := 5
+	backoff := time.Second
+
+	for i := 0; i < maxRetries; i++ {
+		// Ingress is needed, get existing or create new
+		var existing networkingv1.Ingress
+		err = r.Get(ctx, client.ObjectKey{Namespace: desired.Namespace, Name: desired.Name}, &existing)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				logger.Info("Creating ingress", "name", desired.Name)
+				if err := controllerutil.SetControllerReference(&service, desired, r.Scheme); err != nil {
+					return fmt.Errorf("setting controller reference: %w", err)
+				}
+				return r.Create(ctx, desired)
+			}
+			return fmt.Errorf("getting ingress: %w", err)
+		}
+
+		// Update if needed
+		if !reflect.DeepEqual(existing.Spec, desired.Spec) {
+			logger.Info("Updating ingress", "name", desired.Name)
+			existing.Spec = desired.Spec
+			if err := controllerutil.SetControllerReference(&service, &existing, r.Scheme); err != nil {
 				return fmt.Errorf("setting controller reference: %w", err)
 			}
-			return r.Create(ctx, desired)
+			err = r.Update(ctx, &existing)
+			if err != nil {
+				if errors.IsConflict(err) {
+					// Object was modified, wait and retry
+					logger.Info("Ingress was modified, retrying update",
+						"name", desired.Name,
+						"attempt", i+1,
+						"maxRetries", maxRetries)
+					time.Sleep(backoff)
+					backoff *= 2 // Exponential backoff
+					continue
+				}
+				return fmt.Errorf("updating ingress: %w", err)
+			}
 		}
-		return fmt.Errorf("getting ingress: %w", err)
+
+		logger.Info("Ingress already up to date")
+		return nil
 	}
 
-	// Update if needed
-	if !reflect.DeepEqual(existing.Spec, desired.Spec) {
-		logger.Info("Updating ingress", "name", desired.Name)
-		existing.Spec = desired.Spec
-		if err := controllerutil.SetControllerReference(&service, &existing, r.Scheme); err != nil {
-			return fmt.Errorf("setting controller reference: %w", err)
-		}
-		return r.Update(ctx, &existing)
-	}
-
-	logger.Info("Ingress already up to date")
-	return nil
+	return fmt.Errorf("failed to update ingress after %d retries", maxRetries)
 }
 
 // reconcileDatabase handles Service resources of type "database"
@@ -873,37 +936,56 @@ func (r *ServiceReconciler) reconcilePostgresql(ctx context.Context, postgres *p
 		return fmt.Errorf("setting controller reference: %w", err)
 	}
 
-	// Check if the resource exists
-	var existing postgresv1.Postgresql
-	err := r.Get(ctx, client.ObjectKey{Namespace: postgres.Namespace, Name: postgres.Name}, &existing)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			// Create the resource
-			logger.Info("Creating Postgresql", "name", postgres.Name)
-			return r.Create(ctx, postgres)
-		}
-		return err
-	}
+	// Retry logic for handling "object has been modified" errors
+	maxRetries := 5
+	backoff := time.Second
 
-	// Resource exists, check if it needs to be updated
-	if !reflect.DeepEqual(existing.Spec, postgres.Spec) {
-		// Update the resource
-		existing.Spec = postgres.Spec
-		logger.Info("Updating Postgresql", "name", postgres.Name)
-		if err := r.Update(ctx, &existing); err != nil {
+	for i := 0; i < maxRetries; i++ {
+		// Check if the resource exists
+		var existing postgresv1.Postgresql
+		err := r.Get(ctx, client.ObjectKey{Namespace: postgres.Namespace, Name: postgres.Name}, &existing)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				// Create the resource
+				logger.Info("Creating Postgresql", "name", postgres.Name)
+				return r.Create(ctx, postgres)
+			}
 			return err
 		}
-	}
 
-	// If we have a target secret, try to copy credentials
-	if owner.Spec.KubernetesSecret != "" {
-		if err := r.copyPostgresCredentials(ctx, owner); err != nil {
-			logger.Error(err, "Failed to copy PostgreSQL credentials")
-			return err
+		// Resource exists, check if it needs to be updated
+		if !reflect.DeepEqual(existing.Spec, postgres.Spec) {
+			// Update the resource
+			existing.Spec = postgres.Spec
+			logger.Info("Updating Postgresql", "name", postgres.Name)
+			err = r.Update(ctx, &existing)
+			if err != nil {
+				if errors.IsConflict(err) {
+					// Object was modified, wait and retry
+					logger.Info("Postgresql was modified, retrying update",
+						"name", postgres.Name,
+						"attempt", i+1,
+						"maxRetries", maxRetries)
+					time.Sleep(backoff)
+					backoff *= 2 // Exponential backoff
+					continue
+				}
+				return err
+			}
 		}
+
+		// If we have a target secret, try to copy credentials
+		if owner.Spec.KubernetesSecret != "" {
+			if err := r.copyPostgresCredentials(ctx, owner); err != nil {
+				logger.Error(err, "Failed to copy PostgreSQL credentials")
+				return err
+			}
+		}
+
+		return nil
 	}
 
-	return nil
+	return fmt.Errorf("failed to update postgresql after %d retries", maxRetries)
 }
 
 func (r *ServiceReconciler) getPGDefaultDatabaseName(service *v1.Service) string {
@@ -1112,42 +1194,61 @@ func (r *ServiceReconciler) reconcileMySQLCluster(ctx context.Context, mysqlclus
 		return fmt.Errorf("setting controller reference: %w", err)
 	}
 
-	// Check if the resource exists
-	var existing mocov1beta2.MySQLCluster
-	err := r.Get(ctx, client.ObjectKey{Namespace: mysqlcluster.Namespace, Name: mysqlcluster.Name}, &existing)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			// Create the resource
-			logger.Info("Creating MySQLCluster", "name", mysqlcluster.Name)
-			return r.Create(ctx, mysqlcluster)
-		}
-		return err
-	}
+	// Retry logic for handling "object has been modified" errors
+	maxRetries := 5
+	backoff := time.Second
 
-	// Resource exists, check if it needs to be updated
-	if !reflect.DeepEqual(existing.Spec, mysqlcluster.Spec) {
-		// Update the resource
-		existing.Spec = mysqlcluster.Spec
-		logger.Info("Updating MySQLCluster", "name", mysqlcluster.Name)
-		if err := r.Update(ctx, &existing); err != nil {
+	for i := 0; i < maxRetries; i++ {
+		// Check if the resource exists
+		var existing mocov1beta2.MySQLCluster
+		err := r.Get(ctx, client.ObjectKey{Namespace: mysqlcluster.Namespace, Name: mysqlcluster.Name}, &existing)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				// Create the resource
+				logger.Info("Creating MySQLCluster", "name", mysqlcluster.Name)
+				return r.Create(ctx, mysqlcluster)
+			}
 			return err
 		}
-	}
 
-	// If we have a target secret, try to copy credentials
-	if owner.Spec.KubernetesSecret != "" {
-		// Get the latest status
-		if err := r.Get(ctx, client.ObjectKey{Namespace: mysqlcluster.Namespace, Name: mysqlcluster.Name}, &existing); err != nil {
-			return fmt.Errorf("failed to get latest MySQL status: %w", err)
+		// Resource exists, check if it needs to be updated
+		if !reflect.DeepEqual(existing.Spec, mysqlcluster.Spec) {
+			// Update the resource
+			existing.Spec = mysqlcluster.Spec
+			logger.Info("Updating MySQLCluster", "name", mysqlcluster.Name)
+			err = r.Update(ctx, &existing)
+			if err != nil {
+				if errors.IsConflict(err) {
+					// Object was modified, wait and retry
+					logger.Info("MySQLCluster was modified, retrying update",
+						"name", mysqlcluster.Name,
+						"attempt", i+1,
+						"maxRetries", maxRetries)
+					time.Sleep(backoff)
+					backoff *= 2 // Exponential backoff
+					continue
+				}
+				return err
+			}
 		}
 
-		if err := r.copyMySQLCredentials(ctx, owner); err != nil {
-			logger.Error(err, "Failed to copy MySQL credentials")
-			return err
+		// If we have a target secret, try to copy credentials
+		if owner.Spec.KubernetesSecret != "" {
+			// Get the latest status
+			if err := r.Get(ctx, client.ObjectKey{Namespace: mysqlcluster.Namespace, Name: mysqlcluster.Name}, &existing); err != nil {
+				return fmt.Errorf("failed to get latest MySQL status: %w", err)
+			}
+
+			if err := r.copyMySQLCredentials(ctx, owner); err != nil {
+				logger.Error(err, "Failed to copy MySQL credentials")
+				return err
+			}
 		}
+
+		return nil
 	}
 
-	return nil
+	return fmt.Errorf("failed to update mysqlcluster after %d retries", maxRetries)
 }
 
 // copyMySQLCredentials copies credentials from MOCO MySQL secret to the target secret
@@ -1457,7 +1558,6 @@ func updateMongoDBSecretData(targetSecret *corev1.Secret, mongoSecret *corev1.Se
 // * Clickhouse
 // reconcileClickhouseInstallation handles ClickhouseInstallation resources
 func (r *ServiceReconciler) reconcileClickhouseInstallation(ctx context.Context, clickhouseInstalltion *altinityv1.ClickHouseInstallation, owner *v1.Service) error {
-
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling ClickHouseInstallation", "name", clickhouseInstalltion.Name, "namespace", clickhouseInstalltion.Namespace)
 
@@ -1466,42 +1566,61 @@ func (r *ServiceReconciler) reconcileClickhouseInstallation(ctx context.Context,
 		return fmt.Errorf("setting controller reference: %w", err)
 	}
 
-	// Check if the resource exists
-	var existing altinityv1.ClickHouseInstallation
-	err := r.Get(ctx, client.ObjectKey{Namespace: clickhouseInstalltion.Namespace, Name: clickhouseInstalltion.Name}, &existing)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			// Create the resource
-			logger.Info("Creating ClickhouseInstallation", "name", clickhouseInstalltion.Name)
-			return r.Create(ctx, clickhouseInstalltion)
-		}
-		return err
-	}
+	// Retry logic for handling "object has been modified" errors
+	maxRetries := 5
+	backoff := time.Second
 
-	// Resource exists, check if it needs to be updated
-	if !reflect.DeepEqual(existing.Spec, clickhouseInstalltion.Spec) {
-		// Update the resource
-		existing.Spec = clickhouseInstalltion.Spec
-		logger.Info("Updating ClickhouseInstallation", "name", clickhouseInstalltion.Name)
-		if err := r.Update(ctx, &existing); err != nil {
+	for i := 0; i < maxRetries; i++ {
+		// Check if the resource exists
+		var existing altinityv1.ClickHouseInstallation
+		err := r.Get(ctx, client.ObjectKey{Namespace: clickhouseInstalltion.Namespace, Name: clickhouseInstalltion.Name}, &existing)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				// Create the resource
+				logger.Info("Creating ClickhouseInstallation", "name", clickhouseInstalltion.Name)
+				return r.Create(ctx, clickhouseInstalltion)
+			}
 			return err
 		}
-	}
 
-	// If we have a target secret, try to copy credentials
-	if owner.Spec.KubernetesSecret != "" {
-		// Get the latest status
-		if err := r.Get(ctx, client.ObjectKey{Namespace: clickhouseInstalltion.Namespace, Name: clickhouseInstalltion.Name}, &existing); err != nil {
-			return fmt.Errorf("failed to get latest Cllickhouse status: %w", err)
+		// Resource exists, check if it needs to be updated
+		if !reflect.DeepEqual(existing.Spec, clickhouseInstalltion.Spec) {
+			// Update the resource
+			existing.Spec = clickhouseInstalltion.Spec
+			logger.Info("Updating ClickhouseInstallation", "name", clickhouseInstalltion.Name)
+			err = r.Update(ctx, &existing)
+			if err != nil {
+				if errors.IsConflict(err) {
+					// Object was modified, wait and retry
+					logger.Info("ClickhouseInstallation was modified, retrying update",
+						"name", clickhouseInstalltion.Name,
+						"attempt", i+1,
+						"maxRetries", maxRetries)
+					time.Sleep(backoff)
+					backoff *= 2 // Exponential backoff
+					continue
+				}
+				return err
+			}
 		}
 
-		if err := r.copyClickhouseCredentials(ctx, owner); err != nil {
-			logger.Error(err, "Failed to copy Clickhouse credentials")
-			return err
+		// If we have a target secret, try to copy credentials
+		if owner.Spec.KubernetesSecret != "" {
+			// Get the latest status
+			if err := r.Get(ctx, client.ObjectKey{Namespace: clickhouseInstalltion.Namespace, Name: clickhouseInstalltion.Name}, &existing); err != nil {
+				return fmt.Errorf("failed to get latest Cllickhouse status: %w", err)
+			}
+
+			if err := r.copyClickhouseCredentials(ctx, owner); err != nil {
+				logger.Error(err, "Failed to copy Clickhouse credentials")
+				return err
+			}
 		}
+
+		return nil
 	}
 
-	return nil
+	return fmt.Errorf("failed to update clickhouse installation after %d retries", maxRetries)
 }
 
 // copyClickhouseCredentials copies credentials from Clickhouse secret to the target secret
