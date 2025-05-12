@@ -44,7 +44,8 @@ func (rb *ResourceBuilder) BuildDeployment() (*appsv1.Deployment, error) {
 				},
 			},
 		},
-		Env: rb.service.Spec.EnvVars,
+		Env:             rb.service.Spec.EnvVars,
+		SecurityContext: rb.service.Spec.SecurityContext,
 		// ! TODO
 		// Resources: rb.buildResourceRequirements(),
 		// LivenessProbe: rb.buildLivenessProbe(port),
@@ -115,7 +116,6 @@ func (rb *ResourceBuilder) BuildDeployment() (*appsv1.Deployment, error) {
 				Spec: corev1.PodSpec{
 					ImagePullSecrets: imagePullSecrets,
 					Containers:       []corev1.Container{container},
-					SecurityContext:  rb.service.Spec.PodSecurityContext,
 					Volumes:          volumes,
 				},
 			},
