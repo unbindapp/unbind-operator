@@ -174,11 +174,11 @@ type S3ConfigSpec struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="Team",type=string,JSONPath=`.spec.teamRef`
 // +kubebuilder:printcolumn:name="Project",type=string,JSONPath=`.spec.projectRef`
 // +kubebuilder:printcolumn:name="Environment",type=string,JSONPath=`.spec.environmentRef`
 // +kubebuilder:printcolumn:name="Type",type=string,JSONPath=`.spec.type`
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.deploymentStatus`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // Service is the Schema for the services API.
 type Service struct {
