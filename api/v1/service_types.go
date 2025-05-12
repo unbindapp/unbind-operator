@@ -113,6 +113,9 @@ type ServiceConfigSpec struct {
 
 	// Volumes are mounted inside of the container at specified paths
 	Volumes []VolumeSpec `json:"volumes,omitempty"`
+
+	// HealthCheck defines a simplified health check that applies to all probe types
+	HealthCheck *HealthCheckSpec `json:"healthCheck,omitempty"`
 }
 
 // ServiceStatus defines the observed state of Service
@@ -168,6 +171,37 @@ type S3ConfigSpec struct {
 	SecretName           string `json:"secretName"`
 	BackupSchedule       string `json:"backupSchedule"`
 	BackupRetentionCount int    `json:"backupRetentionCount"`
+}
+
+// HealthCheckSpec defines a unified health check that will be translated to all probes
+type HealthCheckSpec struct {
+	// Type of health check, either "http" or "exec"
+	// +kubebuilder:validation:Enum=http;exec
+	Type string `json:"type"`
+
+	// Path for HTTP health checks (e.g., "/api/health")
+	Path string `json:"path,omitempty"`
+
+	// Port for HTTP health checks (defaults to first container port if not specified)
+	Port *int32 `json:"port,omitempty"`
+
+	// Command for exec health checks (will be parsed similar to RunCommand)
+	Command string `json:"command,omitempty"`
+
+	// PeriodSeconds is how often to perform the probe (default: 10)
+	PeriodSeconds *int32 `json:"periodSeconds,omitempty"`
+
+	// TimeoutSeconds is how long to wait before marking probe as failed (default: 5)
+	TimeoutSeconds *int32 `json:"timeoutSeconds,omitempty"`
+
+	// StartupFailureThreshold is the failure threshold for startup probes (default: 5)
+	StartupFailureThreshold *int32 `json:"startupFailureThreshold,omitempty"`
+
+	// LivenessFailureThreshold is the failure threshold for liveness probes (default: 5)
+	LivenessFailureThreshold *int32 `json:"livenessFailureThreshold,omitempty"`
+
+	// ReadinessFailureThreshold is the failure threshold for readiness probes (default: 3)
+	ReadinessFailureThreshold *int32 `json:"readinessFailureThreshold,omitempty"`
 }
 
 // +kubebuilder:object:root=true

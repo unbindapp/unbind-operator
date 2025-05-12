@@ -105,6 +105,56 @@ spec:
                   gitBranch:
                     description: GitBranch to build from
                     type: string
+                  healthCheck:
+                    description: HealthCheck defines a simplified health check that
+                      applies to all probe types
+                    properties:
+                      command:
+                        description: Command for exec health checks (will be parsed
+                          similar to RunCommand)
+                        type: string
+                      livenessFailureThreshold:
+                        description: 'LivenessFailureThreshold is the failure threshold
+                          for liveness probes (default: 5)'
+                        format: int32
+                        type: integer
+                      path:
+                        description: Path for HTTP health checks (e.g., "/api/health")
+                        type: string
+                      periodSeconds:
+                        description: 'PeriodSeconds is how often to perform the probe
+                          (default: 10)'
+                        format: int32
+                        type: integer
+                      port:
+                        description: Port for HTTP health checks (defaults to first
+                          container port if not specified)
+                        format: int32
+                        type: integer
+                      readinessFailureThreshold:
+                        description: 'ReadinessFailureThreshold is the failure threshold
+                          for readiness probes (default: 3)'
+                        format: int32
+                        type: integer
+                      startupFailureThreshold:
+                        description: 'StartupFailureThreshold is the failure threshold
+                          for startup probes (default: 5)'
+                        format: int32
+                        type: integer
+                      timeoutSeconds:
+                        description: 'TimeoutSeconds is how long to wait before marking
+                          probe as failed (default: 5)'
+                        format: int32
+                        type: integer
+                      type:
+                        description: Type of health check, either "http" or "exec"
+                        enum:
+                        - http
+                        - exec
+                        type: string
+                    required:
+                    - type
+                    type: object
                   hosts:
                     description: Hosts is the external domain(s) and paths for the
                       service

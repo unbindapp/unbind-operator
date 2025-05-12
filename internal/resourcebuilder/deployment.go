@@ -7,6 +7,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 var ErrDeploymentNotNeeded = fmt.Errorf("deployment not needed, probably no image configured")
@@ -48,8 +49,13 @@ func (rb *ResourceBuilder) BuildDeployment() (*appsv1.Deployment, error) {
 		SecurityContext: rb.service.Spec.SecurityContext,
 		// ! TODO
 		// Resources: rb.buildResourceRequirements(),
-		// LivenessProbe: rb.buildLivenessProbe(port),
-		// ReadinessProbe: rb.buildReadinessProbe(port),
+	}
+
+	// Add probes if health check is configured
+	if rb.service.Spec.Config.HealthCheck != nil {
+		container.LivenessProbe = rb.buildLivenessProbe()
+		container.ReadinessProbe = rb.buildReadinessProbe()
+		container.StartupProbe = rb.buildStartupProbe()
 	}
 
 	// Add volume mounts if specified
@@ -212,4 +218,112 @@ func parseCommand(cmd string) []string {
 	}
 
 	return result
+}
+
+// buildLivenessProbe creates a liveness probe from the health check configuration
+func (rb *ResourceBuilder) buildLivenessProbe() *corev1.Probe {
+	if rb.service.Spec.Config.HealthCheck == nil {
+		return nil
+	}
+
+	failureThreshold := int32(5)
+	if rb.service.Spec.Config.HealthCheck.LivenessFailureThreshold != nil {
+		failureThreshold = *rb.service.Spec.Config.HealthCheck.LivenessFailureThreshold
+	}
+
+	return rb.buildProbe(failureThreshold)
+}
+
+// buildReadinessProbe creates a readiness probe from the health check configuration
+func (rb *ResourceBuilder) buildReadinessProbe() *corev1.Probe {
+	if rb.service.Spec.Config.HealthCheck == nil {
+		return nil
+	}
+
+	failureThreshold := int32(3)
+	if rb.service.Spec.Config.HealthCheck.ReadinessFailureThreshold != nil {
+		failureThreshold = *rb.service.Spec.Config.HealthCheck.ReadinessFailureThreshold
+	}
+
+	return rb.buildProbe(failureThreshold)
+}
+
+// buildStartupProbe creates a startup probe from the health check configuration
+func (rb *ResourceBuilder) buildStartupProbe() *corev1.Probe {
+	if rb.service.Spec.Config.HealthCheck == nil {
+		return nil
+	}
+
+	failureThreshold := int32(5)
+	if rb.service.Spec.Config.HealthCheck.StartupFailureThreshold != nil {
+		failureThreshold = *rb.service.Spec.Config.HealthCheck.StartupFailureThreshold
+	}
+
+	return rb.buildProbe(failureThreshold)
+}
+
+// buildProbe creates a probe with the specified failure threshold
+func (rb *ResourceBuilder) buildProbe(failureThreshold int32) *corev1.Probe {
+	healthCheck := rb.service.Spec.Config.HealthCheck
+
+	periodSeconds := int32(10)
+	if healthCheck.PeriodSeconds != nil {
+		periodSeconds = *healthCheck.PeriodSeconds
+	}
+
+	timeoutSeconds := int32(5)
+	if healthCheck.TimeoutSeconds != nil {
+		timeoutSeconds = *healthCheck.TimeoutSeconds
+	}
+
+	probe := &corev1.Probe{
+		PeriodSeconds:    periodSeconds,
+		TimeoutSeconds:   timeoutSeconds,
+		FailureThreshold: failureThreshold,
+	}
+
+	switch healthCheck.Type {
+	case "http":
+		// If no port specified and no ports configured, we can't create a valid HTTP probe
+		if healthCheck.Port == nil && len(rb.service.Spec.Config.Ports) == 0 {
+			return nil
+		}
+
+		port := int32(0)
+		if healthCheck.Port != nil {
+			port = *healthCheck.Port
+		} else if len(rb.service.Spec.Config.Ports) > 0 {
+			port = rb.service.Spec.Config.Ports[0].Port
+		}
+
+		path := "/health"
+		if healthCheck.Path != "" {
+			path = healthCheck.Path
+		}
+
+		probe.HTTPGet = &corev1.HTTPGetAction{
+			Path: path,
+			Port: intstr.FromInt(int(port)),
+		}
+
+	case "exec":
+		if healthCheck.Command == "" {
+			return nil // No command specified, skip the probe
+		}
+
+		command := parseCommand(healthCheck.Command)
+		if len(command) == 0 {
+			return nil // Empty command after parsing, skip the probe
+		}
+
+		probe.Exec = &corev1.ExecAction{
+			Command: command,
+		}
+
+	default:
+		// Unknown type, skip the probe
+		return nil
+	}
+
+	return probe
 }
