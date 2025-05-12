@@ -80,6 +80,9 @@ type ServiceSpec struct {
 
 	// EnvironmentRef references the environment this service belongs to
 	EnvironmentRef string `json:"environmentRef"`
+
+	// PodSecurityContext defines the security context for the pod
+	PodSecurityContext *corev1.PodSecurityContext `json:"podSecurityContext,omitempty"`
 }
 
 // ServiceConfigSpec defines configuration for a service
