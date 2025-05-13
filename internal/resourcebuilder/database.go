@@ -26,7 +26,10 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 	}
 
 	// Convert the database config to a map
-	dbConfig := rb.service.Spec.Config.Database.Config.AsMap()
+	dbConfig := make(map[string]interface{})
+	if rb.service.Spec.Config.Database.Config != nil {
+		dbConfig = rb.service.Spec.Config.Database.Config.AsMap()
+	}
 
 	storage := dbConfig["storage"]
 	if storage == "" {
