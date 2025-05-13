@@ -178,12 +178,20 @@ type DatabaseConfigSpec struct {
 }
 
 func (self *DatabaseConfigSpec) AsMap() map[string]interface{} {
-	return map[string]interface{}{
-		"version":             self.Version,
-		"storage":             self.StorageSize,
-		"defaultDatabaseName": self.DefaultDatabaseName,
-		"initdb":              self.InitDB,
+	res := make(map[string]interface{})
+	if self.Version != "" {
+		res["version"] = self.Version
 	}
+	if self.StorageSize != "" {
+		res["storage"] = self.StorageSize
+	}
+	if self.DefaultDatabaseName != "" {
+		res["defaultDatabaseName"] = self.DefaultDatabaseName
+	}
+	if self.InitDB != "" {
+		res["initdb"] = self.InitDB
+	}
+	return res
 }
 
 type S3ConfigSpec struct {
