@@ -19,7 +19,6 @@ package v1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -164,11 +163,27 @@ type DatabaseSpec struct {
 	// Type of the database
 	Type string `json:"type"`
 	// DatabaseSpecVersion is a reference to the version of the database spec
-	DatabaseSpecVersion string               `json:"databaseSpecVersion"`
-	Config              runtime.RawExtension `json:"config,omitempty"`
+	DatabaseSpecVersion string              `json:"databaseSpecVersion"`
+	Config              *DatabaseConfigSpec `json:"config,omitempty"`
 	// S3Config for backupps
 	S3BackupConfig *S3ConfigSpec `json:"s3BackupConfig,omitempty"`
 	// ! TODO - restore options
+}
+
+type DatabaseConfigSpec struct {
+	Version             string `json:"version,omitempty"`
+	StorageSize         string `json:"storage,omitempty"`
+	DefaultDatabaseName string `json:"defaultDatabaseName,omitempty"`
+	InitDB              string `json:"initdb,omitempty"`
+}
+
+func (self *DatabaseConfigSpec) AsMap() map[string]interface{} {
+	return map[string]interface{}{
+		"version":             self.Version,
+		"storage":             self.StorageSize,
+		"defaultDatabaseName": self.DefaultDatabaseName,
+		"initdb":              self.InitDB,
+	}
 }
 
 type S3ConfigSpec struct {

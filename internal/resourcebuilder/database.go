@@ -7,7 +7,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/unbindapp/unbind-api/pkg/databases"
-	"github.com/unbindapp/unbind-operator/internal/utils"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -27,11 +26,7 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 	}
 
 	// Convert the database config to a map
-	dbConfig, err := utils.RawExtensionToMap(rb.service.Spec.Config.Database.Config)
-	if err != nil {
-		logger.Error(err, "Failed to convert database config to map")
-		return nil, err
-	}
+	dbConfig := rb.service.Spec.Config.Database.Config.AsMap()
 
 	storage := dbConfig["storage"]
 	if storage == "" {

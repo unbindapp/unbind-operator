@@ -65,8 +65,16 @@ spec:
                     description: Databases are custom resources to create
                     properties:
                       config:
+                        properties:
+                          defaultDatabaseName:
+                            type: string
+                          initdb:
+                            type: string
+                          storage:
+                            type: string
+                          version:
+                            type: string
                         type: object
-                        x-kubernetes-preserve-unknown-fields: true
                       databaseSpecVersion:
                         description: DatabaseSpecVersion is a reference to the version
                           of the database spec

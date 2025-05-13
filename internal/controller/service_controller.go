@@ -33,7 +33,6 @@ import (
 	v1 "github.com/unbindapp/unbind-operator/api/v1"
 	"github.com/unbindapp/unbind-operator/internal/operator"
 	"github.com/unbindapp/unbind-operator/internal/resourcebuilder"
-	"github.com/unbindapp/unbind-operator/internal/utils"
 	postgresv1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -990,7 +989,7 @@ func (r *ServiceReconciler) reconcilePostgresql(ctx context.Context, postgres *p
 
 func (r *ServiceReconciler) getPGDefaultDatabaseName(service *v1.Service) string {
 	// Convert the database config to a map
-	dbConfig, _ := utils.RawExtensionToMap(service.Spec.Config.Database.Config)
+	dbConfig := service.Spec.Config.Database.Config.AsMap()
 	name := "primarydb"
 	if dbConfig["defaultDatabaseName"] != nil && dbConfig["defaultDatabaseName"] != "" {
 		name, _ = dbConfig["defaultDatabaseName"].(string)
