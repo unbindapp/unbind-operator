@@ -175,6 +175,7 @@ type DatabaseConfigSpec struct {
 	StorageSize         string `json:"storage,omitempty"`
 	DefaultDatabaseName string `json:"defaultDatabaseName,omitempty"`
 	InitDB              string `json:"initdb,omitempty"`
+	WalLevel            string `json:"walLevel,omitempty"`
 }
 
 func (self *DatabaseConfigSpec) AsMap() map[string]interface{} {
@@ -190,6 +191,9 @@ func (self *DatabaseConfigSpec) AsMap() map[string]interface{} {
 	}
 	if self.InitDB != "" {
 		res["initdb"] = self.InitDB
+	}
+	if self.WalLevel != "" {
+		res["walLevel"] = self.WalLevel
 	}
 	return res
 }

@@ -74,6 +74,8 @@ spec:
                             type: string
                           version:
                             type: string
+                          walLevel:
+                            type: string
                         type: object
                       databaseSpecVersion:
                         description: DatabaseSpecVersion is a reference to the version
