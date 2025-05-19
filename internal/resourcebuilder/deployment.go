@@ -134,6 +134,44 @@ func (rb *ResourceBuilder) BuildDeployment() (*appsv1.Deployment, error) {
 		}
 	}
 
+	// Build init containers if specified
+	var initContainers []corev1.Container
+	if len(rb.service.Spec.Config.InitContainers) > 0 {
+		for i, ic := range rb.service.Spec.Config.InitContainers {
+			initContainer := corev1.Container{
+				Name:            fmt.Sprintf("%s-init-%d", rb.service.Name, i),
+				Image:           ic.Image,
+				ImagePullPolicy: corev1.PullAlways,
+				VolumeMounts:    volumeMounts, // Share the same volume mounts as the main container
+				EnvFrom: []corev1.EnvFromSource{
+					{
+						SecretRef: &corev1.SecretEnvSource{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: rb.service.Spec.KubernetesSecret,
+							},
+						},
+					},
+				},
+				Env: rb.service.Spec.EnvVars,
+			}
+
+			// Parse and set command if provided
+			if ic.Command != "" {
+				parsedCommand := parseCommand(ic.Command)
+				if len(parsedCommand) >= 3 && parsedCommand[0] == "/bin/sh" && parsedCommand[1] == "-c" {
+					initContainer.Command = parsedCommand
+				} else if len(parsedCommand) > 0 {
+					initContainer.Command = []string{parsedCommand[0]}
+					if len(parsedCommand) > 1 {
+						initContainer.Args = parsedCommand[1:]
+					}
+				}
+			}
+
+			initContainers = append(initContainers, initContainer)
+		}
+	}
+
 	deployment := &appsv1.Deployment{
 		ObjectMeta: rb.buildObjectMeta(),
 		Spec: appsv1.DeploymentSpec{
@@ -148,6 +186,7 @@ func (rb *ResourceBuilder) BuildDeployment() (*appsv1.Deployment, error) {
 				},
 				Spec: corev1.PodSpec{
 					ImagePullSecrets: imagePullSecrets,
+					InitContainers:   initContainers,
 					Containers:       []corev1.Container{container},
 					Volumes:          volumes,
 				},

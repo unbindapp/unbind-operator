@@ -187,6 +187,21 @@ spec:
                     description: Image is a custom Docker image if not building from
                       git
                     type: string
+                  initContainers:
+                    description: InitContainers are the init containers to run before
+                      the main container
+                    items:
+                      description: Init container spec
+                      properties:
+                        command:
+                          type: string
+                        image:
+                          type: string
+                      required:
+                      - command
+                      - image
+                      type: object
+                    type: array
                   ports:
                     description: Ports are the container ports to expose
                     items:
@@ -221,6 +236,7 @@ spec:
                     description: VariableMounts are paths to mount variables (from
                       secret ref)
                     items:
+                      description: Mounting secret as a file/
                       properties:
                         name:
                           type: string

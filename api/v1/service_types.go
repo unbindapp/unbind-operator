@@ -118,8 +118,18 @@ type ServiceConfigSpec struct {
 
 	// VariableMounts are paths to mount variables (from secret ref)
 	VariableMounts []VariableMountSpec `json:"variableMounts,omitempty"`
+
+	// InitContainers are the init containers to run before the main container
+	InitContainers []InitContainerSpec `json:"initContainers,omitempty"`
 }
 
+// Init container spec
+type InitContainerSpec struct {
+	Image   string `json:"image"`   // Init container image
+	Command string `json:"command"` // Command to run in the init container
+}
+
+// Mounting secret as a file/
 type VariableMountSpec struct {
 	Name string `json:"name"` // Variable Name
 	Path string `json:"path"` // Path to mount the variable
