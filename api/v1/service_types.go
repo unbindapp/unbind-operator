@@ -155,7 +155,7 @@ type HostSpec struct {
 	Host      string `json:"host"`
 	Path      string `json:"path"`
 	Port      *int32 `json:"port,omitempty" required:"false"`
-	TlsIssued bool   `json:"tlsIssued"`
+	TlsIssued bool   `json:"tlsIssued,omitempty"`
 }
 
 type VolumeSpec struct {
