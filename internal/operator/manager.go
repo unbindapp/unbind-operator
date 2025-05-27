@@ -154,7 +154,7 @@ func (m *OperatorManager) installMySQLOperator(ctx context.Context, logger logr.
 			Chart: &helmv2.HelmChartTemplate{
 				Spec: helmv2.HelmChartTemplateSpec{
 					Chart:   "moco",
-					Version: "0.16.0",
+					Version: "0.17.0",
 					SourceRef: helmv2.CrossNamespaceObjectReference{
 						Kind:      "HelmRepository",
 						Name:      "moco-operator",
@@ -218,7 +218,7 @@ func (m *OperatorManager) installClickHouseOperator(ctx context.Context, logger 
 			Chart: &helmv2.HelmChartTemplate{
 				Spec: helmv2.HelmChartTemplateSpec{
 					Chart:   "clickhouse-operator",
-					Version: "0.24.5",
+					Version: "0.25.0",
 					SourceRef: helmv2.CrossNamespaceObjectReference{
 						Kind:      "HelmRepository",
 						Name:      "clickhouse-operator",
