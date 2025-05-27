@@ -152,9 +152,10 @@ type ServiceStatus struct {
 
 type HostSpec struct {
 	// Host is the external domain for the service
-	Host string `json:"host"`
-	Path string `json:"path"`
-	Port *int32 `json:"port,omitempty" required:"false"`
+	Host      string `json:"host"`
+	Path      string `json:"path"`
+	Port      *int32 `json:"port,omitempty" required:"false"`
+	TlsIssued bool   `json:"tlsIssued"`
 }
 
 type VolumeSpec struct {
