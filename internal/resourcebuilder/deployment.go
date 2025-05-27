@@ -18,9 +18,19 @@ func (rb *ResourceBuilder) BuildDeployment() (*appsv1.Deployment, error) {
 		return nil, ErrDeploymentNotNeeded
 	}
 
-	replicas := int32(2)
+	replicas := int32(1)
 	if rb.service.Spec.Config.Replicas != nil {
 		replicas = *rb.service.Spec.Config.Replicas
+	}
+
+	// Set strategy
+	strategy := appsv1.DeploymentStrategy{
+		Type: appsv1.RollingUpdateDeploymentStrategyType,
+	}
+
+	// If volumes, make Recreate instead
+	if len(rb.service.Spec.Config.Volumes) > 0 {
+		strategy.Type = appsv1.RecreateDeploymentStrategyType
 	}
 
 	ports := []corev1.ContainerPort{}
@@ -176,6 +186,7 @@ func (rb *ResourceBuilder) BuildDeployment() (*appsv1.Deployment, error) {
 		ObjectMeta: rb.buildObjectMeta(),
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
+			Strategy: strategy,
 			Selector: &metav1.LabelSelector{
 				MatchLabels: rb.getLabelSelectors(),
 			},
