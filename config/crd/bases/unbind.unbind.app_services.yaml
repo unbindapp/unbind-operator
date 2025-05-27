@@ -178,8 +178,6 @@ spec:
                         port:
                           format: int32
                           type: integer
-                        tlsIssued:
-                          type: boolean
                       required:
                       - host
                       - path
