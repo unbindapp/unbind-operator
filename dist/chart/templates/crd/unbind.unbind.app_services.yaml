@@ -21,9 +21,6 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.teamRef
-      name: Team
-      type: string
     - jsonPath: .spec.projectRef
       name: Project
       type: string
@@ -36,6 +33,9 @@ spec:
     - jsonPath: .status.deploymentStatus
       name: Status
       type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
     name: v1
     schema:
       openAPIV3Schema:
@@ -71,8 +71,18 @@ spec:
                     description: Databases are custom resources to create
                     properties:
                       config:
+                        properties:
+                          defaultDatabaseName:
+                            type: string
+                          initdb:
+                            type: string
+                          storage:
+                            type: string
+                          version:
+                            type: string
+                          walLevel:
+                            type: string
                         type: object
-                        x-kubernetes-preserve-unknown-fields: true
                       databaseSpecVersion:
                         description: DatabaseSpecVersion is a reference to the version
                           of the database spec
@@ -111,6 +121,56 @@ spec:
                   gitBranch:
                     description: GitBranch to build from
                     type: string
+                  healthCheck:
+                    description: HealthCheck defines a simplified health check that
+                      applies to all probe types
+                    properties:
+                      command:
+                        description: Command for exec health checks (will be parsed
+                          similar to RunCommand)
+                        type: string
+                      livenessFailureThreshold:
+                        description: 'LivenessFailureThreshold is the failure threshold
+                          for liveness probes (default: 5)'
+                        format: int32
+                        type: integer
+                      path:
+                        description: Path for HTTP health checks (e.g., "/api/health")
+                        type: string
+                      periodSeconds:
+                        description: 'PeriodSeconds is how often to perform the probe
+                          (default: 10)'
+                        format: int32
+                        type: integer
+                      port:
+                        description: Port for HTTP health checks (defaults to first
+                          container port if not specified)
+                        format: int32
+                        type: integer
+                      readinessFailureThreshold:
+                        description: 'ReadinessFailureThreshold is the failure threshold
+                          for readiness probes (default: 3)'
+                        format: int32
+                        type: integer
+                      startupFailureThreshold:
+                        description: 'StartupFailureThreshold is the failure threshold
+                          for startup probes (default: 5)'
+                        format: int32
+                        type: integer
+                      timeoutSeconds:
+                        description: 'TimeoutSeconds is how long to wait before marking
+                          probe as failed (default: 5)'
+                        format: int32
+                        type: integer
+                      type:
+                        description: Type of health check, either "http" or "exec"
+                        enum:
+                        - http
+                        - exec
+                        type: string
+                    required:
+                    - type
+                    type: object
                   hosts:
                     description: Hosts is the external domain(s) and paths for the
                       service
@@ -133,10 +193,28 @@ spec:
                     description: Image is a custom Docker image if not building from
                       git
                     type: string
+                  initContainers:
+                    description: InitContainers are the init containers to run before
+                      the main container
+                    items:
+                      description: Init container spec
+                      properties:
+                        command:
+                          type: string
+                        image:
+                          type: string
+                      required:
+                      - command
+                      - image
+                      type: object
+                    type: array
                   ports:
                     description: Ports are the container ports to expose
                     items:
                       properties:
+                        nodePort:
+                          format: int32
+                          type: integer
                         port:
                           description: Port is the container port to expose
                           format: int32
@@ -160,6 +238,35 @@ spec:
                   runCommand:
                     description: RunCommand is a custom run command
                     type: string
+                  variableMounts:
+                    description: VariableMounts are paths to mount variables (from
+                      secret ref)
+                    items:
+                      description: Mounting secret as a file/
+                      properties:
+                        name:
+                          type: string
+                        path:
+                          type: string
+                      required:
+                      - name
+                      - path
+                      type: object
+                    type: array
+                  volumes:
+                    description: Volumes are mounted inside of the container at specified
+                      paths
+                    items:
+                      properties:
+                        mountPath:
+                          type: string
+                        name:
+                          type: string
+                      required:
+                      - mountPath
+                      - name
+                      type: object
+                    type: array
                 required:
                 - database
                 - image
@@ -324,6 +431,197 @@ spec:
               provider:
                 description: Provider (e.g. Go, Python, Node, Deno)
                 type: string
+              securityContext:
+                description: SecurityContext defines the security context for the
+                  pod
+                properties:
+                  allowPrivilegeEscalation:
+                    description: |-
+                      AllowPrivilegeEscalation controls whether a process can gain more
+                      privileges than its parent process. This bool directly controls if
+                      the no_new_privs flag will be set on the container process.
+                      AllowPrivilegeEscalation is true always when the container is:
+                      1) run as Privileged
+                      2) has CAP_SYS_ADMIN
+                      Note that this field cannot be set when spec.os.name is windows.
+                    type: boolean
+                  appArmorProfile:
+                    description: |-
+                      appArmorProfile is the AppArmor options to use by this container. If set, this profile
+                      overrides the pod's appArmorProfile.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    properties:
+                      localhostProfile:
+                        description: |-
+                          localhostProfile indicates a profile loaded on the node that should be used.
+                          The profile must be preconfigured on the node to work.
+                          Must match the loaded name of the profile.
+                          Must be set if and only if type is "Localhost".
+                        type: string
+                      type:
+                        description: |-
+                          type indicates which kind of AppArmor profile will be applied.
+                          Valid options are:
+                            Localhost - a profile pre-loaded on the node.
+                            RuntimeDefault - the container runtime's default profile.
+                            Unconfined - no AppArmor enforcement.
+                        type: string
+                    required:
+                    - type
+                    type: object
+                  capabilities:
+                    description: |-
+                      The capabilities to add/drop when running containers.
+                      Defaults to the default set of capabilities granted by the container runtime.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    properties:
+                      add:
+                        description: Added capabilities
+                        items:
+                          description: Capability represent POSIX capabilities type
+                          type: string
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      drop:
+                        description: Removed capabilities
+                        items:
+                          description: Capability represent POSIX capabilities type
+                          type: string
+                        type: array
+                        x-kubernetes-list-type: atomic
+                    type: object
+                  privileged:
+                    description: |-
+                      Run container in privileged mode.
+                      Processes in privileged containers are essentially equivalent to root on the host.
+                      Defaults to false.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    type: boolean
+                  procMount:
+                    description: |-
+                      procMount denotes the type of proc mount to use for the containers.
+                      The default value is Default which uses the container runtime defaults for
+                      readonly paths and masked paths.
+                      This requires the ProcMountType feature flag to be enabled.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    type: string
+                  readOnlyRootFilesystem:
+                    description: |-
+                      Whether this container has a read-only root filesystem.
+                      Default is false.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    type: boolean
+                  runAsGroup:
+                    description: |-
+                      The GID to run the entrypoint of the container process.
+                      Uses runtime default if unset.
+                      May also be set in PodSecurityContext.  If set in both SecurityContext and
+                      PodSecurityContext, the value specified in SecurityContext takes precedence.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    format: int64
+                    type: integer
+                  runAsNonRoot:
+                    description: |-
+                      Indicates that the container must run as a non-root user.
+                      If true, the Kubelet will validate the image at runtime to ensure that it
+                      does not run as UID 0 (root) and fail to start the container if it does.
+                      If unset or false, no such validation will be performed.
+                      May also be set in PodSecurityContext.  If set in both SecurityContext and
+                      PodSecurityContext, the value specified in SecurityContext takes precedence.
+                    type: boolean
+                  runAsUser:
+                    description: |-
+                      The UID to run the entrypoint of the container process.
+                      Defaults to user specified in image metadata if unspecified.
+                      May also be set in PodSecurityContext.  If set in both SecurityContext and
+                      PodSecurityContext, the value specified in SecurityContext takes precedence.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    format: int64
+                    type: integer
+                  seLinuxOptions:
+                    description: |-
+                      The SELinux context to be applied to the container.
+                      If unspecified, the container runtime will allocate a random SELinux context for each
+                      container.  May also be set in PodSecurityContext.  If set in both SecurityContext and
+                      PodSecurityContext, the value specified in SecurityContext takes precedence.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    properties:
+                      level:
+                        description: Level is SELinux level label that applies to
+                          the container.
+                        type: string
+                      role:
+                        description: Role is a SELinux role label that applies to
+                          the container.
+                        type: string
+                      type:
+                        description: Type is a SELinux type label that applies to
+                          the container.
+                        type: string
+                      user:
+                        description: User is a SELinux user label that applies to
+                          the container.
+                        type: string
+                    type: object
+                  seccompProfile:
+                    description: |-
+                      The seccomp options to use by this container. If seccomp options are
+                      provided at both the pod & container level, the container options
+                      override the pod options.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    properties:
+                      localhostProfile:
+                        description: |-
+                          localhostProfile indicates a profile defined in a file on the node should be used.
+                          The profile must be preconfigured on the node to work.
+                          Must be a descending path, relative to the kubelet's configured seccomp profile location.
+                          Must be set if type is "Localhost". Must NOT be set for any other type.
+                        type: string
+                      type:
+                        description: |-
+                          type indicates which kind of seccomp profile will be applied.
+                          Valid options are:
+
+                          Localhost - a profile defined in a file on the node should be used.
+                          RuntimeDefault - the container runtime default profile should be used.
+                          Unconfined - no profile should be applied.
+                        type: string
+                    required:
+                    - type
+                    type: object
+                  windowsOptions:
+                    description: |-
+                      The Windows specific settings applied to all containers.
+                      If unspecified, the options from the PodSecurityContext will be used.
+                      If set in both SecurityContext and PodSecurityContext, the value specified in SecurityContext takes precedence.
+                      Note that this field cannot be set when spec.os.name is linux.
+                    properties:
+                      gmsaCredentialSpec:
+                        description: |-
+                          GMSACredentialSpec is where the GMSA admission webhook
+                          (https://github.com/kubernetes-sigs/windows-gmsa) inlines the contents of the
+                          GMSA credential spec named by the GMSACredentialSpecName field.
+                        type: string
+                      gmsaCredentialSpecName:
+                        description: GMSACredentialSpecName is the name of the GMSA
+                          credential spec to use.
+                        type: string
+                      hostProcess:
+                        description: |-
+                          HostProcess determines if a container should be run as a 'Host Process' container.
+                          All of a Pod's containers must have the same effective HostProcess value
+                          (it is not allowed to have a mix of HostProcess containers and non-HostProcess containers).
+                          In addition, if HostProcess is true then HostNetwork must also be set to true.
+                        type: boolean
+                      runAsUserName:
+                        description: |-
+                          The UserName in Windows to run the entrypoint of the container process.
+                          Defaults to the user specified in image metadata if unspecified.
+                          May also be set in PodSecurityContext. If set in both SecurityContext and
+                          PodSecurityContext, the value specified in SecurityContext takes precedence.
+                        type: string
+                    type: object
+                type: object
               serviceRef:
                 description: ServiceRef is a reference to the service this service
                   is based on
