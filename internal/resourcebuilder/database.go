@@ -126,6 +126,26 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 		commonMap["exposeExternal"] = true
 	}
 
+	// For resources
+	if rb.service.Spec.Config.Resources != nil {
+		commonMap["resources"] = make(map[string]interface{})
+		resourcesMap := commonMap["resources"].(map[string]interface{})
+		resourcesMap["requests"] = make(map[string]string)
+		resourcesMap["limits"] = make(map[string]string)
+		if rb.service.Spec.Config.Resources.CPURequestsMillicores != nil {
+			resourcesMap["requests"].(map[string]string)["cpu"] = fmt.Sprintf("%dm", *rb.service.Spec.Config.Resources.CPURequestsMillicores)
+		}
+		if rb.service.Spec.Config.Resources.CPULimitsMillicores != nil {
+			resourcesMap["limits"].(map[string]string)["cpu"] = fmt.Sprintf("%dm", *rb.service.Spec.Config.Resources.CPULimitsMillicores)
+		}
+		if rb.service.Spec.Config.Resources.MemoryRequestsMebibytes != nil {
+			resourcesMap["requests"].(map[string]string)["memory"] = fmt.Sprintf("%dMi", *rb.service.Spec.Config.Resources.MemoryRequestsMebibytes)
+		}
+		if rb.service.Spec.Config.Resources.MemoryLimitsMebibytes != nil {
+			resourcesMap["limits"].(map[string]string)["memory"] = fmt.Sprintf("%dMi", *rb.service.Spec.Config.Resources.MemoryLimitsMebibytes)
+		}
+	}
+
 	// Add kubernetes secret name if specified in the service
 	if rb.service.Spec.KubernetesSecret != "" {
 		switch strings.ToLower(rb.service.Spec.Config.Database.Type) {

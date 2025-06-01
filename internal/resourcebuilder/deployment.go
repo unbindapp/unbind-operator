@@ -6,6 +6,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
@@ -144,6 +145,34 @@ func (rb *ResourceBuilder) BuildDeployment() (*appsv1.Deployment, error) {
 		}
 	}
 
+	// Build resource requirements if specified
+	if rb.service.Spec.Config.Resources != nil {
+		container.Resources = corev1.ResourceRequirements{}
+		if rb.service.Spec.Config.Resources.CPURequestsMillicores != nil {
+			container.Resources.Requests = corev1.ResourceList{
+				corev1.ResourceCPU: *resource.NewMilliQuantity(*rb.service.Spec.Config.Resources.CPURequestsMillicores, resource.DecimalSI),
+			}
+		}
+		if rb.service.Spec.Config.Resources.CPULimitsMillicores != nil {
+			if container.Resources.Limits == nil {
+				container.Resources.Limits = corev1.ResourceList{}
+			}
+			container.Resources.Limits[corev1.ResourceCPU] = *resource.NewMilliQuantity(*rb.service.Spec.Config.Resources.CPULimitsMillicores, resource.DecimalSI)
+		}
+		if rb.service.Spec.Config.Resources.MemoryRequestsMebibytes != nil {
+			if container.Resources.Requests == nil {
+				container.Resources.Requests = corev1.ResourceList{}
+			}
+			container.Resources.Requests[corev1.ResourceMemory] = *resource.NewQuantity(int64(*rb.service.Spec.Config.Resources.MemoryRequestsMebibytes)*1024*1024, resource.BinarySI)
+		}
+		if rb.service.Spec.Config.Resources.MemoryLimitsMebibytes != nil {
+			if container.Resources.Limits == nil {
+				container.Resources.Limits = corev1.ResourceList{}
+			}
+			container.Resources.Limits[corev1.ResourceMemory] = *resource.NewQuantity(int64(*rb.service.Spec.Config.Resources.MemoryLimitsMebibytes)*1024*1024, resource.BinarySI)
+		}
+	}
+
 	// Build init containers if specified
 	var initContainers []corev1.Container
 	if len(rb.service.Spec.Config.InitContainers) > 0 {
@@ -152,6 +181,7 @@ func (rb *ResourceBuilder) BuildDeployment() (*appsv1.Deployment, error) {
 				Name:            fmt.Sprintf("%s-init-%d", rb.service.Name, i),
 				Image:           ic.Image,
 				ImagePullPolicy: corev1.PullAlways,
+				Resources:       container.Resources,
 				VolumeMounts:    volumeMounts, // Share the same volume mounts as the main container
 				EnvFrom: []corev1.EnvFromSource{
 					{

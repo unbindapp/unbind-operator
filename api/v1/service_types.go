@@ -121,6 +121,19 @@ type ServiceConfigSpec struct {
 
 	// InitContainers are the init containers to run before the main container
 	InitContainers []InitContainerSpec `json:"initContainers,omitempty"`
+
+	// Resources defines the resource requirements for the container
+	Resources *ResourceSpec `json:"resources,omitempty"`
+}
+
+// ResourceSpec defines the resource requirements for a container
+type ResourceSpec struct {
+	// CPU requests and limits
+	CPURequestsMillicores *int64 `json:"cpuRequestsMillicores,omitempty"`
+	CPULimitsMillicores   *int64 `json:"cpuLimitsMillicores,omitempty"`
+	// Memory requests and limits
+	MemoryRequestsMebibytes *int64 `json:"memoryRequestsMebibytes,omitempty"`
+	MemoryLimitsMebibytes   *int64 `json:"memoryLimitsMebibytes,omitempty"`
 }
 
 // Init container spec
