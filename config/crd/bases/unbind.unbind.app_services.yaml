@@ -240,10 +240,10 @@ spec:
                         description: CPU requests and limits
                         format: int64
                         type: integer
-                      memoryLimitsMebibytes:
+                      memoryLimitsMegabytes:
                         format: int64
                         type: integer
-                      memoryRequestsMebibytes:
+                      memoryRequestsMegabytes:
                         description: Memory requests and limits
                         format: int64
                         type: integer

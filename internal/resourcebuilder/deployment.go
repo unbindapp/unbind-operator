@@ -160,17 +160,17 @@ func (rb *ResourceBuilder) BuildDeployment() (*appsv1.Deployment, error) {
 			}
 			container.Resources.Limits[corev1.ResourceCPU] = *resource.NewMilliQuantity(*rb.service.Spec.Config.Resources.CPULimitsMillicores, resource.DecimalSI)
 		}
-		if rb.service.Spec.Config.Resources.MemoryRequestsMebibytes != nil {
+		if rb.service.Spec.Config.Resources.MemoryRequestsMegabytes != nil {
 			if container.Resources.Requests == nil {
 				container.Resources.Requests = corev1.ResourceList{}
 			}
-			container.Resources.Requests[corev1.ResourceMemory] = *resource.NewQuantity(int64(*rb.service.Spec.Config.Resources.MemoryRequestsMebibytes)*1024*1024, resource.BinarySI)
+			container.Resources.Requests[corev1.ResourceMemory] = *resource.NewQuantity(int64(*rb.service.Spec.Config.Resources.MemoryRequestsMegabytes)*1000*1000, resource.DecimalSI)
 		}
-		if rb.service.Spec.Config.Resources.MemoryLimitsMebibytes != nil {
+		if rb.service.Spec.Config.Resources.MemoryLimitsMegabytes != nil {
 			if container.Resources.Limits == nil {
 				container.Resources.Limits = corev1.ResourceList{}
 			}
-			container.Resources.Limits[corev1.ResourceMemory] = *resource.NewQuantity(int64(*rb.service.Spec.Config.Resources.MemoryLimitsMebibytes)*1024*1024, resource.BinarySI)
+			container.Resources.Limits[corev1.ResourceMemory] = *resource.NewQuantity(int64(*rb.service.Spec.Config.Resources.MemoryLimitsMegabytes)*1000*1000, resource.DecimalSI)
 		}
 	}
 

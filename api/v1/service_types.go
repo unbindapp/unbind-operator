@@ -132,8 +132,8 @@ type ResourceSpec struct {
 	CPURequestsMillicores *int64 `json:"cpuRequestsMillicores,omitempty"`
 	CPULimitsMillicores   *int64 `json:"cpuLimitsMillicores,omitempty"`
 	// Memory requests and limits
-	MemoryRequestsMebibytes *int64 `json:"memoryRequestsMebibytes,omitempty"`
-	MemoryLimitsMebibytes   *int64 `json:"memoryLimitsMebibytes,omitempty"`
+	MemoryRequestsMegabytes *int64 `json:"memoryRequestsMegabytes,omitempty"`
+	MemoryLimitsMegabytes   *int64 `json:"memoryLimitsMegabytes,omitempty"`
 }
 
 // Init container spec

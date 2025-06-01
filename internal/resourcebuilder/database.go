@@ -138,11 +138,11 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 		if rb.service.Spec.Config.Resources.CPULimitsMillicores != nil {
 			resourcesMap["limits"].(map[string]string)["cpu"] = fmt.Sprintf("%dm", *rb.service.Spec.Config.Resources.CPULimitsMillicores)
 		}
-		if rb.service.Spec.Config.Resources.MemoryRequestsMebibytes != nil {
-			resourcesMap["requests"].(map[string]string)["memory"] = fmt.Sprintf("%dMi", *rb.service.Spec.Config.Resources.MemoryRequestsMebibytes)
+		if rb.service.Spec.Config.Resources.MemoryRequestsMegabytes != nil {
+			resourcesMap["requests"].(map[string]string)["memory"] = fmt.Sprintf("%dMi", *rb.service.Spec.Config.Resources.MemoryRequestsMegabytes)
 		}
-		if rb.service.Spec.Config.Resources.MemoryLimitsMebibytes != nil {
-			resourcesMap["limits"].(map[string]string)["memory"] = fmt.Sprintf("%dMi", *rb.service.Spec.Config.Resources.MemoryLimitsMebibytes)
+		if rb.service.Spec.Config.Resources.MemoryLimitsMegabytes != nil {
+			resourcesMap["limits"].(map[string]string)["memory"] = fmt.Sprintf("%dMi", *rb.service.Spec.Config.Resources.MemoryLimitsMegabytes)
 		}
 	}
 
