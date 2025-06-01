@@ -149,9 +149,10 @@ func (rb *ResourceBuilder) BuildDeployment() (*appsv1.Deployment, error) {
 	if rb.service.Spec.Config.Resources != nil {
 		container.Resources = corev1.ResourceRequirements{}
 		if rb.service.Spec.Config.Resources.CPURequestsMillicores != nil {
-			container.Resources.Requests = corev1.ResourceList{
-				corev1.ResourceCPU: *resource.NewMilliQuantity(*rb.service.Spec.Config.Resources.CPURequestsMillicores, resource.DecimalSI),
+			if container.Resources.Requests == nil {
+				container.Resources.Requests = corev1.ResourceList{}
 			}
+			container.Resources.Requests[corev1.ResourceCPU] = *resource.NewMilliQuantity(*rb.service.Spec.Config.Resources.CPURequestsMillicores, resource.DecimalSI)
 		}
 		if rb.service.Spec.Config.Resources.CPULimitsMillicores != nil {
 			if container.Resources.Limits == nil {
