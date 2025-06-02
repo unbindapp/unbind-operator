@@ -279,6 +279,7 @@ func (r *ServiceReconciler) reconcileDeployment(ctx context.Context, rb resource
 
 		// Update if needed
 		if !reflect.DeepEqual(existing.Spec, desired.Spec) || !reflect.DeepEqual(existing.Labels, desired.Labels) {
+			existing.Labels = desired.Labels
 			existing.Spec = desired.Spec
 			err = r.Update(ctx, &existing)
 			if err != nil {
