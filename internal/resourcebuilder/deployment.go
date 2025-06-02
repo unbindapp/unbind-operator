@@ -148,29 +148,29 @@ func (rb *ResourceBuilder) BuildDeployment() (*appsv1.Deployment, error) {
 	// Build resource requirements if specified
 	if rb.service.Spec.Config.Resources != nil {
 		container.Resources = corev1.ResourceRequirements{}
-		if rb.service.Spec.Config.Resources.CPURequestsMillicores != nil {
+		if rb.service.Spec.Config.Resources.CPURequestsMillicores > 0 {
 			if container.Resources.Requests == nil {
 				container.Resources.Requests = corev1.ResourceList{}
 			}
-			container.Resources.Requests[corev1.ResourceCPU] = *resource.NewMilliQuantity(*rb.service.Spec.Config.Resources.CPURequestsMillicores, resource.DecimalSI)
+			container.Resources.Requests[corev1.ResourceCPU] = *resource.NewMilliQuantity(rb.service.Spec.Config.Resources.CPURequestsMillicores, resource.DecimalSI)
 		}
-		if rb.service.Spec.Config.Resources.CPULimitsMillicores != nil {
+		if rb.service.Spec.Config.Resources.CPULimitsMillicores > 0 {
 			if container.Resources.Limits == nil {
 				container.Resources.Limits = corev1.ResourceList{}
 			}
-			container.Resources.Limits[corev1.ResourceCPU] = *resource.NewMilliQuantity(*rb.service.Spec.Config.Resources.CPULimitsMillicores, resource.DecimalSI)
+			container.Resources.Limits[corev1.ResourceCPU] = *resource.NewMilliQuantity(rb.service.Spec.Config.Resources.CPULimitsMillicores, resource.DecimalSI)
 		}
-		if rb.service.Spec.Config.Resources.MemoryRequestsMegabytes != nil {
+		if rb.service.Spec.Config.Resources.MemoryRequestsMegabytes > 0 {
 			if container.Resources.Requests == nil {
 				container.Resources.Requests = corev1.ResourceList{}
 			}
-			container.Resources.Requests[corev1.ResourceMemory] = *resource.NewQuantity(int64(*rb.service.Spec.Config.Resources.MemoryRequestsMegabytes)*1000*1000, resource.DecimalSI)
+			container.Resources.Requests[corev1.ResourceMemory] = *resource.NewQuantity(rb.service.Spec.Config.Resources.MemoryRequestsMegabytes*1000*1000, resource.DecimalSI)
 		}
-		if rb.service.Spec.Config.Resources.MemoryLimitsMegabytes != nil {
+		if rb.service.Spec.Config.Resources.MemoryLimitsMegabytes > 0 {
 			if container.Resources.Limits == nil {
 				container.Resources.Limits = corev1.ResourceList{}
 			}
-			container.Resources.Limits[corev1.ResourceMemory] = *resource.NewQuantity(int64(*rb.service.Spec.Config.Resources.MemoryLimitsMegabytes)*1000*1000, resource.DecimalSI)
+			container.Resources.Limits[corev1.ResourceMemory] = *resource.NewQuantity(rb.service.Spec.Config.Resources.MemoryLimitsMegabytes*1000*1000, resource.DecimalSI)
 		}
 	}
 

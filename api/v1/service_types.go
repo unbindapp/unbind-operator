@@ -129,11 +129,11 @@ type ServiceConfigSpec struct {
 // ResourceSpec defines the resource requirements for a container
 type ResourceSpec struct {
 	// CPU requests and limits
-	CPURequestsMillicores *int64 `json:"cpuRequestsMillicores,omitempty"`
-	CPULimitsMillicores   *int64 `json:"cpuLimitsMillicores,omitempty"`
+	CPURequestsMillicores int64 `json:"cpuRequestsMillicores"`
+	CPULimitsMillicores   int64 `json:"cpuLimitsMillicores"`
 	// Memory requests and limits
-	MemoryRequestsMegabytes *int64 `json:"memoryRequestsMegabytes,omitempty"`
-	MemoryLimitsMegabytes   *int64 `json:"memoryLimitsMegabytes,omitempty"`
+	MemoryRequestsMegabytes int64 `json:"memoryRequestsMegabytes"`
+	MemoryLimitsMegabytes   int64 `json:"memoryLimitsMegabytes"`
 }
 
 // Init container spec

@@ -247,6 +247,11 @@ spec:
                         description: Memory requests and limits
                         format: int64
                         type: integer
+                    required:
+                    - cpuLimitsMillicores
+                    - cpuRequestsMillicores
+                    - memoryLimitsMegabytes
+                    - memoryRequestsMegabytes
                     type: object
                   runCommand:
                     description: RunCommand is a custom run command
