@@ -128,8 +128,7 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 
 	// For resources
 	if rb.service.Spec.Config.Resources != nil {
-		commonMap["resources"] = make(map[string]interface{})
-		resourcesMap := commonMap["resources"].(map[string]interface{})
+		resourcesMap := make(map[string]interface{})
 		resourcesMap["requests"] = make(map[string]string)
 		resourcesMap["limits"] = make(map[string]string)
 		if rb.service.Spec.Config.Resources.CPURequestsMillicores > 0 {
@@ -144,6 +143,8 @@ func (rb *ResourceBuilder) BuildDatabaseObjects(ctx context.Context, logger logr
 		if rb.service.Spec.Config.Resources.MemoryLimitsMegabytes > 0 {
 			resourcesMap["limits"].(map[string]string)["memory"] = fmt.Sprintf("%dMi", rb.service.Spec.Config.Resources.MemoryLimitsMegabytes)
 		}
+
+		commonMap["resources"] = resourcesMap
 	}
 
 	// Add kubernetes secret name if specified in the service

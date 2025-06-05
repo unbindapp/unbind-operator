@@ -163,7 +163,15 @@ func (m *OperatorManager) installMySQLOperator(ctx context.Context, logger logr.
 				},
 			},
 			Values: &apiextensionsv1.JSON{
-				Raw: []byte(`{"replicaCount": 1}`),
+				Raw: []byte(`{
+					"replicaCount": 1,
+					"resources": {
+						"requests": {
+							"cpu": "10m",
+							"memory": "20Mi"
+						}
+					}
+				}`),
 			},
 		},
 	}
@@ -233,7 +241,12 @@ func (m *OperatorManager) installClickHouseOperator(ctx context.Context, logger 
 							"repository": "altinity/clickhouse-operator",
 							"pullPolicy": "IfNotPresent"
 						},
-						"resources": {},
+						"resources": {
+							"requests": {
+								"cpu": "10m",
+								"memory": "20Mi"
+							}
+						},
 						"env": [
 							{
 								"name": "WATCH_NAMESPACES",
