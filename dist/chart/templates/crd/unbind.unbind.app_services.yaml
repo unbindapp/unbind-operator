@@ -235,6 +235,30 @@ spec:
                     description: Replicas is the number of replicas for the service
                     format: int32
                     type: integer
+                  resources:
+                    description: Resources defines the resource requirements for the
+                      container
+                    properties:
+                      cpuLimitsMillicores:
+                        format: int64
+                        type: integer
+                      cpuRequestsMillicores:
+                        description: CPU requests and limits
+                        format: int64
+                        type: integer
+                      memoryLimitsMegabytes:
+                        format: int64
+                        type: integer
+                      memoryRequestsMegabytes:
+                        description: Memory requests and limits
+                        format: int64
+                        type: integer
+                    required:
+                    - cpuLimitsMillicores
+                    - cpuRequestsMillicores
+                    - memoryLimitsMegabytes
+                    - memoryRequestsMegabytes
+                    type: object
                   runCommand:
                     description: RunCommand is a custom run command
                     type: string
