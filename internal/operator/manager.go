@@ -197,7 +197,7 @@ func (m *OperatorManager) installClickHouseOperator(ctx context.Context, logger 
 			Namespace: namespace,
 		},
 		Spec: sourcev1.HelmRepositorySpec{
-			URL: "https://altinity.github.io/clickhouse-operator/",
+			URL: "https://docs.altinity.com/clickhouse-operator/",
 			Interval: metav1.Duration{
 				Duration: 3600000000000, // 1 hour
 			},
@@ -225,7 +225,7 @@ func (m *OperatorManager) installClickHouseOperator(ctx context.Context, logger 
 			},
 			Chart: &helmv2.HelmChartTemplate{
 				Spec: helmv2.HelmChartTemplateSpec{
-					Chart:   "clickhouse-operator",
+					Chart:   "altinity-clickhouse-operator",
 					Version: "0.25.0",
 					SourceRef: helmv2.CrossNamespaceObjectReference{
 						Kind:      "HelmRepository",
