@@ -334,12 +334,22 @@ func (rb *ResourceBuilder) buildLivenessProbe() *corev1.Probe {
 		return nil
 	}
 
-	failureThreshold := int32(5)
-	if rb.service.Spec.Config.HealthCheck.LivenessFailureThreshold != nil {
-		failureThreshold = *rb.service.Spec.Config.HealthCheck.LivenessFailureThreshold
+	failureThreshold := int32(3)
+	if rb.service.Spec.Config.HealthCheck.HealthFailureThreshold != nil {
+		failureThreshold = *rb.service.Spec.Config.HealthCheck.HealthFailureThreshold
 	}
 
-	return rb.buildProbe(failureThreshold)
+	periodSeconds := int32(10)
+	if rb.service.Spec.Config.HealthCheck.HealthPeriodSeconds != nil {
+		periodSeconds = *rb.service.Spec.Config.HealthCheck.HealthPeriodSeconds
+	}
+
+	timeoutSeconds := int32(5)
+	if rb.service.Spec.Config.HealthCheck.HealthTimeoutSeconds != nil {
+		timeoutSeconds = *rb.service.Spec.Config.HealthCheck.HealthTimeoutSeconds
+	}
+
+	return rb.buildProbe(failureThreshold, periodSeconds, timeoutSeconds)
 }
 
 // buildReadinessProbe creates a readiness probe from the health check configuration
@@ -349,11 +359,21 @@ func (rb *ResourceBuilder) buildReadinessProbe() *corev1.Probe {
 	}
 
 	failureThreshold := int32(3)
-	if rb.service.Spec.Config.HealthCheck.ReadinessFailureThreshold != nil {
-		failureThreshold = *rb.service.Spec.Config.HealthCheck.ReadinessFailureThreshold
+	if rb.service.Spec.Config.HealthCheck.HealthFailureThreshold != nil {
+		failureThreshold = *rb.service.Spec.Config.HealthCheck.HealthFailureThreshold
 	}
 
-	return rb.buildProbe(failureThreshold)
+	periodSeconds := int32(10)
+	if rb.service.Spec.Config.HealthCheck.HealthPeriodSeconds != nil {
+		periodSeconds = *rb.service.Spec.Config.HealthCheck.HealthPeriodSeconds
+	}
+
+	timeoutSeconds := int32(5)
+	if rb.service.Spec.Config.HealthCheck.HealthTimeoutSeconds != nil {
+		timeoutSeconds = *rb.service.Spec.Config.HealthCheck.HealthTimeoutSeconds
+	}
+
+	return rb.buildProbe(failureThreshold, periodSeconds, timeoutSeconds)
 }
 
 // buildStartupProbe creates a startup probe from the health check configuration
@@ -362,27 +382,27 @@ func (rb *ResourceBuilder) buildStartupProbe() *corev1.Probe {
 		return nil
 	}
 
-	failureThreshold := int32(5)
+	failureThreshold := int32(30)
 	if rb.service.Spec.Config.HealthCheck.StartupFailureThreshold != nil {
 		failureThreshold = *rb.service.Spec.Config.HealthCheck.StartupFailureThreshold
 	}
 
-	return rb.buildProbe(failureThreshold)
-}
-
-// buildProbe creates a probe with the specified failure threshold
-func (rb *ResourceBuilder) buildProbe(failureThreshold int32) *corev1.Probe {
-	healthCheck := rb.service.Spec.Config.HealthCheck
-
-	periodSeconds := int32(10)
-	if healthCheck.PeriodSeconds != nil {
-		periodSeconds = *healthCheck.PeriodSeconds
+	periodSeconds := int32(3)
+	if rb.service.Spec.Config.HealthCheck.StartupPeriodSeconds != nil {
+		periodSeconds = *rb.service.Spec.Config.HealthCheck.StartupPeriodSeconds
 	}
 
 	timeoutSeconds := int32(5)
-	if healthCheck.TimeoutSeconds != nil {
-		timeoutSeconds = *healthCheck.TimeoutSeconds
+	if rb.service.Spec.Config.HealthCheck.StartupTimeoutSeconds != nil {
+		timeoutSeconds = *rb.service.Spec.Config.HealthCheck.StartupTimeoutSeconds
 	}
+
+	return rb.buildProbe(failureThreshold, periodSeconds, timeoutSeconds)
+}
+
+// buildProbe creates a probe with the specified parameters
+func (rb *ResourceBuilder) buildProbe(failureThreshold, periodSeconds, timeoutSeconds int32) *corev1.Probe {
+	healthCheck := rb.service.Spec.Config.HealthCheck
 
 	probe := &corev1.Probe{
 		PeriodSeconds:    periodSeconds,

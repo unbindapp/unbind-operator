@@ -246,20 +246,23 @@ type HealthCheckSpec struct {
 	// Command for exec health checks (will be parsed similar to RunCommand)
 	Command string `json:"command,omitempty"`
 
-	// PeriodSeconds is how often to perform the probe (default: 10)
-	PeriodSeconds *int32 `json:"periodSeconds,omitempty"`
+	// StartupPeriodSeconds is how often to perform the probe (default: 3)
+	StartupPeriodSeconds *int32 `json:"startupPeriodSeconds,omitempty"`
 
-	// TimeoutSeconds is how long to wait before marking probe as failed (default: 5)
-	TimeoutSeconds *int32 `json:"timeoutSeconds,omitempty"`
+	// StartupTimeoutSeconds is how long to wait before marking probe as failed (default: 5)
+	StartupTimeoutSeconds *int32 `json:"startupTimeoutSeconds,omitempty"`
 
-	// StartupFailureThreshold is the failure threshold for startup probes (default: 5)
+	// StartupFailureThreshold is the failure threshold for startup probes (default: 30)
 	StartupFailureThreshold *int32 `json:"startupFailureThreshold,omitempty"`
 
-	// LivenessFailureThreshold is the failure threshold for liveness probes (default: 5)
-	LivenessFailureThreshold *int32 `json:"livenessFailureThreshold,omitempty"`
+	// HealthPeriodSeconds is how often to perform the probe (default: 10)
+	HealthPeriodSeconds *int32 `json:"healthPeriodSeconds,omitempty"`
 
-	// ReadinessFailureThreshold is the failure threshold for readiness probes (default: 3)
-	ReadinessFailureThreshold *int32 `json:"readinessFailureThreshold,omitempty"`
+	// HealthTimeoutSeconds is how long to wait before marking probe as failed (default: 5)
+	HealthTimeoutSeconds *int32 `json:"healthTimeoutSeconds,omitempty"`
+
+	// HealthFailureThreshold is the failure threshold for health probes (default: 3)
+	HealthFailureThreshold *int32 `json:"healthFailureThreshold,omitempty"`
 }
 
 // +kubebuilder:object:root=true
